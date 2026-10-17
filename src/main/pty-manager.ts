@@ -1,96 +1,284 @@
-import * as pty from 'node-pty';
-import { ipcMain, BrowserWindow } from 'electron';
-import os from 'os';
+import * as pty from 'node-pty'
+import { ipcMain, WebContents } from 'electron'
+import os from 'os'
+import path from 'path'
+import fs from 'fs'
 
-const ptyProcesses = new Map<string, pty.IPty>();
-const shell = os.platform() === 'win32' ? 'powershell.exe' : process.env.SHELL || 'bash';
+interface ManagedPty {
+  process: pty.IPty
+  owner: WebContents
+  bootstrap?: ReturnType<typeof setTimeout>
+  exited: Promise<void>
+  markExited: () => void
+  buffer: string[]
+  bufferLength: number
+}
 
-export function initPtyManager(mainWindow: BrowserWindow) {
-  ipcMain.on('pty-create', (event, id: string, name: string, cwd: string) => {
-    console.log('Spawning PTY:', id, name, cwd)
-    if (ptyProcesses.has(id)) return;
+const processes = new Map<string, ManagedPty>()
+const retiring = new Set<ManagedPty>()
+const shell = os.platform() === 'win32' ? 'powershell.exe' : process.env.SHELL || 'bash'
+let initialized = false
 
-    try {
-      const ptyProcess = pty.spawn(shell, [], {
-        name: 'xterm-color',
-        cols: 80,
-        rows: 30,
-        cwd: cwd || process.env.HOME,
-        env: { ...process.env, TERMINAL_NAME: name } as Record<string, string>
-      });
+function resolvePath(value?: string): string {
+  if (!value || value === '~') return os.homedir()
+  if (value.startsWith('~/')) return path.join(os.homedir(), value.slice(2))
+  return path.resolve(value)
+}
 
-      console.log('PTY Spawned successfully:', ptyProcess.pid);
+function resolveEnv(customEnv?: Record<string, string>): Record<string, string> {
+  const resolved: Record<string, string> = {}
+  for (const [key, value] of Object.entries(customEnv || {})) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || typeof value !== 'string') continue
+    resolved[key] = value === '~' || value.startsWith('~/') ? resolvePath(value) : value
+  }
+  return resolved
+}
 
-      ptyProcess.onData((data) => {
-        mainWindow.webContents.send(`pty-out-${id}`, data);
-      });
+function send(owner: WebContents, channel: string, value: string | number): void {
+  if (!owner.isDestroyed()) owner.send(channel, value)
+}
 
-      ptyProcess.onExit((exitCode) => {
-        console.log('PTY exited:', exitCode)
-        mainWindow.webContents.send(`pty-exit-${id}`, exitCode);
-        ptyProcesses.delete(id);
-      });
+function stop(id: string, owner?: WebContents): void {
+  const entry = processes.get(id)
+  if (!entry || (owner && entry.owner !== owner)) return
+  processes.delete(id) // Retire first so a late exit cannot remove a replacement.
+  retiring.add(entry)
+  if (entry.bootstrap) clearTimeout(entry.bootstrap)
+  try {
+    entry.process.kill()
+  } catch {
+    // A shell may have exited before the close event arrives.
+  }
+}
 
-      ptyProcesses.set(id, ptyProcess);
-    } catch (err) {
-      console.error('Error spawning PTY:', err);
+function start(
+  owner: WebContents,
+  id: string,
+  name: string,
+  cwd: string,
+  command?: string,
+  customEnv?: Record<string, string>
+): void {
+  if (typeof id !== 'string' || !id || processes.has(id)) return
+  try {
+    const directory = resolvePath(cwd)
+    if (!fs.statSync(directory).isDirectory()) throw new Error('Working directory is not a folder')
+    const custom = resolveEnv(customEnv)
+    for (const key of [
+      'CODEX_HOME',
+      'CLAUDE_CONFIG_DIR',
+      'GEMINI_DIR',
+      'GEMINI_CLI_DIR',
+      'ANTIGRAVITY_APP_DATA_DIR'
+    ]) {
+      if (custom[key]) fs.mkdirSync(custom[key], { recursive: true })
     }
-  });
-
-  ipcMain.on('pty-restart', (event, id: string, name: string, cwd: string) => {
-    console.log('Restarting PTY:', id);
-    const existingPty = ptyProcesses.get(id);
-    if (existingPty) {
-      existingPty.kill();
-      ptyProcesses.delete(id);
+    const existingPath = (process.env.PATH || '/usr/bin:/bin:/usr/sbin:/sbin').split(path.delimiter)
+    const extraPath = [
+      path.join(os.homedir(), '.npm-global', 'bin'),
+      path.join(os.homedir(), '.local', 'bin'),
+      path.join(os.homedir(), '.cargo', 'bin'),
+      '/opt/homebrew/bin',
+      '/opt/homebrew/sbin',
+      '/usr/local/bin'
+    ]
+    const child = pty.spawn(shell, [], {
+      name: 'xterm-256color',
+      cols: 80,
+      rows: 30,
+      cwd: directory,
+      env: {
+        ...process.env,
+        PATH: [...new Set([...extraPath, ...existingPath])].join(path.delimiter),
+        TERMINAL_NAME: name,
+        NEXUS_ENV: '1',
+        NEXUS_PANE_ID: id,
+        ...custom
+      } as Record<string, string>
+    })
+    let markExited!: () => void
+    const exited = new Promise<void>((resolve) => {
+      markExited = resolve
+    })
+    const entry: ManagedPty = {
+      process: child,
+      owner,
+      exited,
+      markExited,
+      buffer: [],
+      bufferLength: 0
     }
-    
-    // Slight delay to ensure the OS kills the previous process cleanly
-    setTimeout(() => {
-      try {
-        const ptyProcess = pty.spawn(shell, [], {
-          name: 'xterm-color',
-          cols: 80,
-          rows: 30,
-          cwd: cwd || process.env.HOME,
-          env: { ...process.env, TERMINAL_NAME: name } as Record<string, string>
-        });
-
-        ptyProcess.onData((data) => {
-          mainWindow.webContents.send(`pty-out-${id}`, data);
-        });
-
-        ptyProcess.onExit((exitCode) => {
-          mainWindow.webContents.send(`pty-exit-${id}`, exitCode);
-          ptyProcesses.delete(id);
-        });
-
-        ptyProcesses.set(id, ptyProcess);
-      } catch (err) {
-        console.error('Error restarting PTY:', err);
+    processes.set(id, entry)
+    child.onData((data) => {
+      entry.buffer.push(data)
+      entry.bufferLength += data.length
+      while (entry.bufferLength > 100_000 && entry.buffer.length > 1) {
+        const removed = entry.buffer.shift()
+        if (removed) entry.bufferLength -= removed.length
       }
-    }, 100);
-  });
+      if (processes.get(id) === entry) send(owner, `pty-out-${id}`, data)
+    })
+    child.onExit(({ exitCode }) => {
+      entry.markExited()
+      retiring.delete(entry)
+      if (processes.get(id) !== entry) return
+      processes.delete(id)
+      if (entry.bootstrap) clearTimeout(entry.bootstrap)
+      send(owner, `pty-exit-${id}`, exitCode)
+    })
+    if (command) {
+      let executed = false
+      const runBootstrap = (): void => {
+        if (executed) return
+        executed = true
+        if (processes.get(id) === entry) child.write(`${command}\r`)
+      }
+      const initialDataDisposable = child.onData(() => {
+        initialDataDisposable.dispose()
+        setTimeout(runBootstrap, 120)
+      })
+      entry.bootstrap = setTimeout(() => {
+        initialDataDisposable.dispose()
+        runBootstrap()
+      }, 700)
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unable to start terminal'
+    send(owner, `pty-error-${id}`, message)
+  }
+}
 
+export async function cleanupAllPty(): Promise<void> {
+  for (const id of processes.keys()) stop(id)
+  if (retiring.size === 0) return
+
+  // node-pty posts its exit callback from a native thread. Let those callbacks
+  // reach JS before Electron tears down the Node environment on app quit.
+  const waitForExit = async (timeout: number): Promise<void> => {
+    if (retiring.size === 0) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([
+        Promise.all([...retiring].map((entry) => entry.exited)),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, timeout)
+        })
+      ])
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+  }
+  await waitForExit(1200)
+  for (const entry of retiring) {
+    try {
+      entry.process.kill('SIGKILL')
+    } catch {
+      // It may have exited between the timeout and the force kill.
+    }
+  }
+  await waitForExit(1200)
+}
+
+export function initPtyManager(): void {
+  if (initialized) return
+  initialized = true
+
+  ipcMain.on(
+    'pty-create',
+    (
+      event,
+      id: string,
+      name: string,
+      cwd: string,
+      command?: string,
+      env?: Record<string, string>
+    ) => {
+      start(event.sender, id, name, cwd, command, env)
+    }
+  )
+  ipcMain.on(
+    'pty-restart',
+    (
+      event,
+      id: string,
+      name: string,
+      cwd: string,
+      command?: string,
+      env?: Record<string, string>
+    ) => {
+      const existing = processes.get(id)
+      if (existing && existing.owner !== event.sender) return
+      stop(id, event.sender)
+      start(event.sender, id, name, cwd, command, env)
+    }
+  )
   ipcMain.on('pty-write', (event, id: string, data: string) => {
-    const ptyProcess = ptyProcesses.get(id);
-    if (ptyProcess) {
-      ptyProcess.write(data);
+    const entry = processes.get(id)
+    if (entry?.owner === event.sender && typeof data === 'string') entry.process.write(data)
+  })
+  ipcMain.on('pty-input', (event, arg1: string | { id: string; data: string }, arg2?: string) => {
+    let id = ''
+    let data = ''
+    if (typeof arg1 === 'object' && arg1 !== null) {
+      id = arg1.id
+      data = arg1.data
+    } else if (typeof arg1 === 'string') {
+      id = arg1
+      data = typeof arg2 === 'string' ? arg2 : ''
     }
-  });
-
+    const entry = processes.get(id)
+    if (entry?.owner === event.sender && typeof data === 'string') {
+      entry.process.write(data)
+    }
+  })
   ipcMain.on('pty-resize', (event, id: string, cols: number, rows: number) => {
-    const ptyProcess = ptyProcesses.get(id);
-    if (ptyProcess) {
-      ptyProcess.resize(cols, rows);
+    const entry = processes.get(id)
+    if (
+      entry?.owner === event.sender &&
+      Number.isInteger(cols) &&
+      Number.isInteger(rows) &&
+      cols > 0 &&
+      rows > 0
+    ) {
+      entry.process.resize(cols, rows)
     }
-  });
-
-  ipcMain.on('pty-kill', (event, id: string) => {
-    const ptyProcess = ptyProcesses.get(id);
-    if (ptyProcess) {
-      ptyProcess.kill();
-      ptyProcesses.delete(id);
+  })
+  ipcMain.on('pty-kill', (event, id: string) => stop(id, event.sender))
+  ipcMain.on('pty-broadcast', (_event, input: string) => {
+    if (typeof input !== 'string') return
+    for (const entry of processes.values()) {
+      try {
+        entry.process.write(input)
+      } catch {
+        // Process may have exited
+      }
     }
-  });
+  })
+  ipcMain.on(
+    'pty-send-to-targets',
+    (_event, payload: { targetIds: string[]; input: string } | string[]) => {
+      // Support both { targetIds, input } object and targetIds array
+      if (!payload) return
+      if (typeof payload === 'object' && 'targetIds' in payload && 'input' in payload) {
+        const { targetIds, input } = payload as { targetIds: string[]; input: string }
+        if (!Array.isArray(targetIds) || typeof input !== 'string') return
+        for (const id of targetIds) {
+          const entry = processes.get(id)
+          if (entry) {
+            try {
+              entry.process.write(input)
+            } catch {
+              // Process may have exited
+            }
+          }
+        }
+      }
+    }
+  )
+  ipcMain.on('pty-request-history', (event, id: string) => {
+    const entry = processes.get(id)
+    if (entry && entry.buffer.length > 0) {
+      send(event.sender, `pty-history-${id}`, entry.buffer.join(''))
+    }
+  })
 }

@@ -1,7 +1,7 @@
 {
   "name": "ai-terminal-app",
   "version": "1.0.0",
-  "description": "An Electron application with React and TypeScript",
+  "description": "Autonomous AI Agent Swarm Workspace, Terminal Multiplexer, and API Studio powered by Electron, React, and TypeScript",
   "main": "./out/main/index.js",
   "author": "example.com",
   "homepage": "https://electron-vite.org",
