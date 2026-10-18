@@ -134,7 +134,7 @@ export function getAccountEnv(account?: AIAccount): Record<string, string> {
     } else if (!isPrimary) {
       env.CODEX_HOME = `~/.codex-${account.id}`
     }
-  } else if (account.providerId === 'gemini') {
+  } else if (account.providerId === 'gemini' || (account.providerId as string) === 'antigravity') {
     if (account.cliConfigDir && !isPrimary) {
       const cfg = account.cliConfigDir
       env.ANTIGRAVITY_APP_DATA_DIR = cfg.endsWith('/antigravity-cli')

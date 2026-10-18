@@ -2733,6 +2733,20 @@ function AppShell(): JSX.Element {
                               }}
                               onDock={() => dispatch({ type: 'DOCK_SESSION', id: pane.id })}
                               onClose={() => removePane(pane.id)}
+                              onAccountChange={(newAccountId, newProviderId, newEnv) => {
+                                setPanes((prev) =>
+                                  prev.map((p) =>
+                                    p.id === pane.id
+                                      ? {
+                                          ...p,
+                                          accountId: newAccountId,
+                                          providerId: newProviderId,
+                                          env: newEnv
+                                        }
+                                      : p
+                                  )
+                                )
+                              }}
                             />
                           ) : (
                             <WebChatPane

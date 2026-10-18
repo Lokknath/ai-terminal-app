@@ -213,7 +213,8 @@ export function getAccountCLIConfigDir(account: AIAccount): string {
   ) {
     if (account.providerId === 'claude') return path.join(home, '.claude')
     if (account.providerId === 'chatgpt') return path.join(home, '.codex')
-    if (account.providerId === 'gemini') return path.join(home, '.gemini')
+    if (account.providerId === 'gemini' || (account.providerId as string) === 'antigravity')
+      return path.join(home, '.gemini')
   }
 
   if (account.cliConfigDir) {
@@ -230,7 +231,7 @@ export function getAccountCLIConfigDir(account: AIAccount): string {
     return isPrimary ? path.join(home, '.codex') : path.join(home, `.codex-${account.id}`)
   }
 
-  if (account.providerId === 'gemini') {
+  if (account.providerId === 'gemini' || (account.providerId as string) === 'antigravity') {
     return isPrimary ? path.join(home, '.gemini') : path.join(home, `.gemini-${account.id}`)
   }
 
@@ -509,7 +510,7 @@ export function initAccountManager(): void {
         return { loggedIn: false, configDir: cfgDir }
       }
 
-      if (account.providerId === 'gemini') {
+      if (account.providerId === 'gemini' || (account.providerId as string) === 'antigravity') {
         // For Google Auth with Antigravity CLI (agy)
         const isPrimary =
           account.id.includes('default') ||

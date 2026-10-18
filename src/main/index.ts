@@ -90,7 +90,27 @@ async function openSafeExternal(url: string): Promise<boolean> {
   return false
 }
 
+function ensureKeychainCompatibility(): void {
+  if (process.platform !== 'darwin') return
+  try {
+    const keychainsDir = join(app.getPath('home'), 'Library', 'Keychains')
+    const modernDb = join(keychainsDir, 'login.keychain-db')
+    const legacyDb = join(keychainsDir, 'login.keychain')
+    if (fs.existsSync(modernDb) && !fs.existsSync(legacyDb)) {
+      try {
+        fs.symlinkSync('login.keychain-db', legacyDb)
+        console.log('[Keychain] Created compatibility symlink login.keychain -> login.keychain-db')
+      } catch (linkErr) {
+        console.warn('[Keychain] Could not link login.keychain:', linkErr)
+      }
+    }
+  } catch (err) {
+    console.warn('[Keychain] Keychain check skipped:', err)
+  }
+}
+
 cleanStaleSingletonLocks()
+ensureKeychainCompatibility()
 
 let mainWindowRef: BrowserWindow | null = null
 const hasSingleInstanceLock = app.requestSingleInstanceLock()

@@ -102,6 +102,13 @@ export type AppAction =
       id: string
       agentState: TerminalAgentState
     }
+  | {
+      type: 'UPDATE_TERMINAL_ACCOUNT'
+      id: string
+      accountId?: string
+      providerId?: string
+      env?: Record<string, string>
+    }
   | { type: 'SET_KEEP_AWAKE'; enabled: boolean }
 
 // ─── Reducer ─────────────────────────────────────────
@@ -192,6 +199,20 @@ function appReducer(state: AppState, action: AppAction): AppState {
         ...state,
         terminals: state.terminals.map((t) =>
           t.id === action.id ? { ...t, agentState: action.agentState } : t
+        )
+      }
+    case 'UPDATE_TERMINAL_ACCOUNT':
+      return {
+        ...state,
+        terminals: state.terminals.map((t) =>
+          t.id === action.id
+            ? {
+                ...t,
+                accountId: action.accountId,
+                providerId: action.providerId || t.providerId,
+                env: action.env
+              }
+            : t
         )
       }
     case 'SET_KEEP_AWAKE':

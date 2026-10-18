@@ -66,6 +66,11 @@ interface TerminalPaneProps {
   onMaximize?: () => void
   onDock?: () => void
   onClose: () => void
+  onAccountChange?: (
+    accountId: string | undefined,
+    providerId: string,
+    env: Record<string, string>
+  ) => void
 }
 
 export default function TerminalPane({
@@ -83,7 +88,8 @@ export default function TerminalPane({
   onQuickResize,
   onMaximize,
   onDock,
-  onClose
+  onClose,
+  onAccountChange
 }: TerminalPaneProps): JSX.Element {
   const { state, dispatch } = useApp()
   const terminalRef = useRef<HTMLDivElement>(null)
@@ -743,6 +749,21 @@ export default function TerminalPane({
         `\x1b[32m✔ Spawning shell with isolated profile: ${Object.keys(newEnv).join(', ') || 'Default'}\x1b[0m\r\n\r\n`
       )
     }
+
+    const targetProviderId =
+      accId !== 'all'
+        ? state.aiAccounts.find((a) => a.id === accId)?.providerId || providerId
+        : 'local'
+
+    onAccountChange?.(accId === 'all' ? undefined : accId, targetProviderId, newEnv)
+    dispatch({
+      type: 'UPDATE_TERMINAL_ACCOUNT',
+      id,
+      accountId: accId === 'all' ? undefined : accId,
+      providerId: targetProviderId,
+      env: newEnv
+    })
+
     window.electron.ipcRenderer.send('pty-restart', id, name, cwd, commandToRun, newEnv)
   }
 

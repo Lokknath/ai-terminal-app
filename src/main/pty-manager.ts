@@ -82,13 +82,19 @@ function start(
       '/opt/homebrew/sbin',
       '/usr/local/bin'
     ]
-    const child = pty.spawn(shell, [], {
+    const shellArgs = process.platform === 'win32' ? [] : ['-l']
+    const child = pty.spawn(shell, shellArgs, {
       name: 'xterm-256color',
       cols: 80,
       rows: 30,
       cwd: directory,
       env: {
         ...process.env,
+        USER: process.env.USER || os.userInfo().username,
+        LOGNAME: process.env.LOGNAME || process.env.USER || os.userInfo().username,
+        HOME: os.homedir(),
+        SHELL: shell,
+        LANG: process.env.LANG || 'en_US.UTF-8',
         PATH: [...new Set([...extraPath, ...existingPath])].join(path.delimiter),
         TERMINAL_NAME: name,
         NEXUS_ENV: '1',

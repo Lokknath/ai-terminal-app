@@ -654,6 +654,36 @@ export default function AgentSidebar({
                             >
                               {session.name}
                             </strong>
+                            {(() => {
+                              const acc = state.aiAccounts.find((a) => a.id === session.accountId)
+                              if (!acc) return null
+                              const icon =
+                                acc.providerId === 'claude'
+                                  ? '🧠'
+                                  : acc.providerId === 'chatgpt'
+                                    ? '🤖'
+                                    : acc.providerId === 'gemini' ||
+                                        (acc.providerId as string) === 'antigravity'
+                                      ? '💎'
+                                      : '🦁'
+                              return (
+                                <span
+                                  style={{
+                                    fontSize: '9.5px',
+                                    color: '#8baeff',
+                                    backgroundColor: 'rgba(117, 157, 255, 0.12)',
+                                    borderRadius: '3px',
+                                    padding: '1px 5px',
+                                    marginLeft: '2px',
+                                    fontWeight: 500,
+                                    whiteSpace: 'nowrap'
+                                  }}
+                                  title={`Linked account: ${acc.name}`}
+                                >
+                                  {icon} {acc.name}
+                                </span>
+                              )
+                            })()}
                           </div>
 
                           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>

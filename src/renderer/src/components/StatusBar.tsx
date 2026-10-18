@@ -169,7 +169,8 @@ export default function StatusBar({
                 ? '🧠'
                 : activeAccount.providerId === 'chatgpt'
                   ? '🤖'
-                  : activeAccount.providerId === 'gemini'
+                  : activeAccount.providerId === 'gemini' ||
+                      (activeAccount.providerId as string) === 'antigravity'
                     ? '💎'
                     : '🦁'}
             </span>
