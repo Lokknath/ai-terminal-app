@@ -50,5 +50,9 @@
     "react-dom": "^19.2.1",
     "typescript": "^5.9.3",
     "vite": "^7.2.6"
-  }
+  },
+  "browserslist": [
+    "Chrome >= 120",
+    "last 2 Chrome versions"
+  ]
 }

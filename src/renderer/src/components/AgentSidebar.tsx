@@ -54,7 +54,9 @@ export default function AgentSidebar({
   const [selectedTerminalIds, setSelectedTerminalIds] = useState<string[] | null>(null)
   const [focusedTerminalIndex, setFocusedTerminalIndex] = useState<number>(0)
   const [swarmMode, setSwarmMode] = useState<'parallel' | 'sequential'>('parallel')
-  const [swarmStatusFilter, setSwarmStatusFilter] = useState<'all' | 'waiting' | 'working' | 'idle'>('all')
+  const [swarmStatusFilter, setSwarmStatusFilter] = useState<
+    'all' | 'waiting' | 'working' | 'idle'
+  >('all')
   const [perTerminalInputs, setPerTerminalInputs] = useState<Record<string, string>>({})
   const [swarmHistory, setSwarmHistory] = useState<string[]>(() => {
     try {
@@ -152,7 +154,9 @@ export default function AgentSidebar({
           .replace(/\$\{NAME\}/g, t.name)
         window.electron.ipcRenderer.send(
           `pty-in-${t.id}`,
-          interpolated.endsWith('\r') || interpolated === '\x03' ? interpolated : `${interpolated}\r`
+          interpolated.endsWith('\r') || interpolated === '\x03'
+            ? interpolated
+            : `${interpolated}\r`
         )
       })
       setBroadcastFeedback(
@@ -168,7 +172,9 @@ export default function AgentSidebar({
             .replace(/\$\{NAME\}/g, t.name)
           window.electron.ipcRenderer.send(
             `pty-in-${t.id}`,
-            interpolated.endsWith('\r') || interpolated === '\x03' ? interpolated : `${interpolated}\r`
+            interpolated.endsWith('\r') || interpolated === '\x03'
+              ? interpolated
+              : `${interpolated}\r`
           )
         }, i * 250)
       })
@@ -402,7 +408,13 @@ export default function AgentSidebar({
                     gap: '6px'
                   }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center'
+                    }}
+                  >
                     <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 600 }}>
                       Targets: {effectiveSelectedIds.length}/{state.terminals.length}
                     </span>
@@ -460,7 +472,14 @@ export default function AgentSidebar({
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
                     <div style={{ display: 'flex', gap: '3px' }}>
                       {(['all', 'waiting', 'working', 'idle'] as const).map((st) => (
                         <button
@@ -494,9 +513,13 @@ export default function AgentSidebar({
                         padding: '2px 6px',
                         borderRadius: '4px',
                         backgroundColor:
-                          swarmMode === 'parallel' ? 'rgba(6, 182, 212, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+                          swarmMode === 'parallel'
+                            ? 'rgba(6, 182, 212, 0.15)'
+                            : 'rgba(245, 158, 11, 0.15)',
                         border: `1px solid ${
-                          swarmMode === 'parallel' ? 'rgba(6, 182, 212, 0.4)' : 'rgba(245, 158, 11, 0.4)'
+                          swarmMode === 'parallel'
+                            ? 'rgba(6, 182, 212, 0.4)'
+                            : 'rgba(245, 158, 11, 0.4)'
                         }`,
                         color: swarmMode === 'parallel' ? '#06b6d4' : '#f59e0b',
                         cursor: 'pointer',
@@ -509,7 +532,14 @@ export default function AgentSidebar({
                 </div>
 
                 {/* Keyboard Navigation Tip */}
-                <div style={{ fontSize: '10px', color: '#64748b', display: 'flex', justifyContent: 'space-between' }}>
+                <div
+                  style={{
+                    fontSize: '10px',
+                    color: '#64748b',
+                    display: 'flex',
+                    justifyContent: 'space-between'
+                  }}
+                >
                   <span>↑ / ↓ or Alt+↑ / Alt+↓ to navigate</span>
                   <span>Space to toggle check</span>
                 </div>
@@ -523,7 +553,8 @@ export default function AgentSidebar({
                   })
                   .map((session, index) => {
                     const agentStatus = session.agentState?.status || 'idle'
-                    const question = session.agentState?.promptQuestion || session.agentState?.question
+                    const question =
+                      session.agentState?.promptQuestion || session.agentState?.question
                     const isBlocked = agentStatus === 'waiting'
                     const isWorking = agentStatus === 'working'
                     const isSelected = effectiveSelectedIds.includes(session.id)
@@ -546,7 +577,8 @@ export default function AgentSidebar({
                           } else if (e.key === ' ') {
                             e.preventDefault()
                             setSelectedTerminalIds((prev) => {
-                              const current = prev === null ? state.terminals.map((t) => t.id) : prev
+                              const current =
+                                prev === null ? state.terminals.map((t) => t.id) : prev
                               return current.includes(session.id)
                                 ? current.filter((id) => id !== session.id)
                                 : [...current, session.id]
@@ -597,7 +629,8 @@ export default function AgentSidebar({
                             }}
                             onClick={() => {
                               setSelectedTerminalIds((prev) => {
-                                const current = prev === null ? state.terminals.map((t) => t.id) : prev
+                                const current =
+                                  prev === null ? state.terminals.map((t) => t.id) : prev
                                 return current.includes(session.id)
                                   ? current.filter((id) => id !== session.id)
                                   : [...current, session.id]
@@ -655,7 +688,8 @@ export default function AgentSidebar({
                                 background: 'transparent',
                                 border: 'none',
                                 color: index === state.terminals.length - 1 ? '#475569' : '#94a3b8',
-                                cursor: index === state.terminals.length - 1 ? 'default' : 'pointer',
+                                cursor:
+                                  index === state.terminals.length - 1 ? 'default' : 'pointer',
                                 padding: '1px'
                               }}
                             >
@@ -776,7 +810,10 @@ export default function AgentSidebar({
                           <button
                             type="button"
                             onClick={() =>
-                              handleSendToSingleTerminal(session.id, perTerminalInputs[session.id] || '')
+                              handleSendToSingleTerminal(
+                                session.id,
+                                perTerminalInputs[session.id] || ''
+                              )
                             }
                             disabled={!perTerminalInputs[session.id]?.trim()}
                             title="Send command directly to this terminal only"
@@ -992,7 +1029,9 @@ export default function AgentSidebar({
                     borderRadius: '6px',
                     padding: '6px 12px',
                     cursor:
-                      broadcastCmd.trim() && effectiveSelectedIds.length > 0 ? 'pointer' : 'default',
+                      broadcastCmd.trim() && effectiveSelectedIds.length > 0
+                        ? 'pointer'
+                        : 'default',
                     display: 'flex',
                     alignItems: 'center'
                   }}

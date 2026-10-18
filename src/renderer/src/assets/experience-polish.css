@@ -930,12 +930,17 @@ body {
 
 /* --- Interactive Drag-Drop Zones & HUD Polish --- */
 @keyframes dropZonePulse {
-  0%, 100% {
-    box-shadow: 0 0 24px rgba(139, 174, 255, 0.45), inset 0 0 20px rgba(139, 174, 255, 0.25);
+  0%,
+  100% {
+    box-shadow:
+      0 0 24px rgba(139, 174, 255, 0.45),
+      inset 0 0 20px rgba(139, 174, 255, 0.25);
     border-color: rgba(139, 174, 255, 0.9);
   }
   50% {
-    box-shadow: 0 0 48px rgba(139, 174, 255, 0.85), inset 0 0 35px rgba(139, 174, 255, 0.45);
+    box-shadow:
+      0 0 48px rgba(139, 174, 255, 0.85),
+      inset 0 0 35px rgba(139, 174, 255, 0.45);
     border-color: #ffffff;
   }
 }
@@ -970,7 +975,8 @@ body.dragging-active .xterm {
 
 /* Swarm status pill subtle breathing pulse */
 @keyframes swarmStatusPulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 1;
     transform: scale(1);
   }
@@ -1029,11 +1035,15 @@ body.resizing-active .xterm {
 /* Pane Cycling Highlight Pulse (Cmd + ] / Cmd + [) */
 @keyframes paneFocusPulse {
   0% {
-    box-shadow: 0 0 0 2px rgba(117, 157, 255, 0.95), 0 0 26px rgba(117, 157, 255, 0.6);
+    box-shadow:
+      0 0 0 2px rgba(117, 157, 255, 0.95),
+      0 0 26px rgba(117, 157, 255, 0.6);
     border-color: #759dff !important;
   }
   50% {
-    box-shadow: 0 0 0 3px rgba(117, 157, 255, 0.7), 0 0 16px rgba(117, 157, 255, 0.35);
+    box-shadow:
+      0 0 0 3px rgba(117, 157, 255, 0.7),
+      0 0 16px rgba(117, 157, 255, 0.35);
   }
   100% {
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
@@ -1099,7 +1109,9 @@ body.resizing-active .xterm {
   background: #1a2030 !important;
   border-color: rgba(117, 157, 255, 0.45) !important;
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35), 0 0 12px rgba(117, 157, 255, 0.2) !important;
+  box-shadow:
+    0 6px 20px rgba(0, 0, 0, 0.35),
+    0 0 12px rgba(117, 157, 255, 0.2) !important;
 }
 
 .starter-icon-box {
@@ -1469,7 +1481,9 @@ body.resizing-active .xterm {
   backdrop-filter: blur(18px);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.65), 0 0 1px rgba(255, 255, 255, 0.2);
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.65),
+    0 0 1px rgba(255, 255, 255, 0.2);
   padding: 4px;
   display: flex;
   flex-direction: column;
@@ -1535,7 +1549,8 @@ body.resizing-active .xterm {
 }
 
 @keyframes attentionGlow {
-  0%, 100% {
+  0%,
+  100% {
     background-color: rgba(245, 158, 11, 0.14);
   }
   50% {
@@ -1597,6 +1612,3 @@ body.resizing-active .xterm {
   color: #ffffff;
   box-shadow: 0 0 10px rgba(239, 68, 68, 0.3);
 }
-
-
-

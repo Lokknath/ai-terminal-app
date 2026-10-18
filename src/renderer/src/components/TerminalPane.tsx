@@ -1612,9 +1612,7 @@ export default function TerminalPane({
                         onMouseOver={(e) =>
                           (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.06)')
                         }
-                        onMouseOut={(e) =>
-                          (e.currentTarget.style.backgroundColor = 'transparent')
-                        }
+                        onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                       >
                         {sz.label}
                       </button>
@@ -1705,9 +1703,7 @@ export default function TerminalPane({
                     onMouseOver={(e) =>
                       (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.06)')
                     }
-                    onMouseOut={(e) =>
-                      (e.currentTarget.style.backgroundColor = 'transparent')
-                    }
+                    onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                   >
                     <Globe size={11} color="#8baeff" /> {label}
                   </button>

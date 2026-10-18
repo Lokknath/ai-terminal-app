@@ -1,0 +1,3 @@
+# Browserslist target for Electron Chromium
+Chrome >= 120
+last 2 Chrome versions

@@ -15,6 +15,7 @@ Built with **Electron**, **React 19**, **TypeScript**, **xterm.js**, and **node-
 ## Key Features
 
 ### 1. Autonomous AI Agent Swarm Orchestration
+
 - **Swarm Command Runner**: Dispatch commands across all active terminals simultaneously or target specific agent subsets.
 - **Interactive Keyboard Swarm Navigation**: Navigate through running agents using <kbd>↑</kbd> / <kbd>↓</kbd> arrows and activate sessions instantly with <kbd>Space</kbd> or <kbd>Enter</kbd>.
 - **Live Agent Telemetry**: Automatic regex & output pattern detection identifying agent states in real time:
@@ -23,11 +24,13 @@ Built with **Electron**, **React 19**, **TypeScript**, **xterm.js**, and **node-
   - ⚪ **Idle**: Session standing by ready for tasks.
 
 ### 2. Intelligent Attention Center & Instant 1-Click Approvals
+
 - **In-Pane Attention Action Banner**: Prominent visual banner when an agent requires execution confirmation.
 - **Direct Hotkey Approvals**: Press <kbd>y</kbd> to immediately approve or <kbd>n</kbd> to deny without having to type into terminal prompts.
 - **Attention Notification Center**: Interactive toast notifications for blocked agents with 1-click focus switching directly to the waiting terminal.
 
 ### 3. Modern Ergonomics & Responsive Status Bar
+
 - **Raycast-Style Command Menu (<kbd>⌘K</kbd>)**: Centered fast launcher to search commands, execute layouts, launch CLIs, and switch workspaces.
 - **Unified 26px Bottom Status Bar**:
   - Live session counter and swarm status pill with 1-click jump to blocked terminals.
@@ -36,24 +39,29 @@ Built with **Electron**, **React 19**, **TypeScript**, **xterm.js**, and **node-
   - Direct keyboard shortcut indicators (<kbd>⌘K</kbd>, <kbd>⌘B</kbd>, <kbd>⌘⇧F</kbd>, <kbd>☕ Keep-Awake</kbd>).
 
 ### 4. Resilient Terminal Multiplexing & Drag-and-Drop Tiling
+
 - **Responsive Grid & Snap Layouts**: Dynamic 12-column grid system with Solo, 2-Column Split, 3-Column Swarm, 4-Tile, and Focus+Tile layouts.
 - **Edge Snap Drop Zones**: Drag pane headers to screen edges to snap into Left 50%, Right 50%, Top 50%, Bottom 50%, or Dock to Sidebar.
 - **Streamlined Pane Header with `•••` More Menu**: Clean, uncrowded toolbar with quick actions (Send Enter, Paste Clipboard, Paste & Run, Copy All Output, Clear, Zoom Font `A-`/`A+`, Resize Width 100/67/50/33%, and Dock Dev Preview).
 
 ### 5. Run-When-Away Sleep Prevention
+
 - **System Power Guard**: Uses Electron's native `powerSaveBlocker` to automatically prevent macOS and Windows system sleep while any agent in the swarm is actively working.
 - **Manual Toggle**: One-click coffee cup (<kbd>☕</kbd>) icon in the status bar to toggle keep-awake mode at will.
 
 ### 6. Full cURL & Axios-Curl Request Runner (API Studio)
+
 - **Multi-Line cURL Parsing**: Parse complex multi-line cURL commands with cookies (`-b`), custom headers (`-H`), body payload, and authentication tokens.
 - **Axios Code Converter**: 1-click conversion between raw cURL and structured Axios JavaScript/TypeScript code snippets.
 - **CORS-Free Native HTTP Client**: Direct main-process execution allowing API requests without browser CORS restrictions.
 
 ### 7. Isolated Multi-Account Web Browser
+
 - **Partition Isolation**: Run separate, concurrent logins for Claude.ai, ChatGPT, and Google Gemini using isolated Electron session partitions (`persist:account-<id>`).
 - **DevTools Integration**: Open Chromium Developer Tools with one click on any web pane to inspect network traffic.
 
 ### 8. Built-in Notes Workspace
+
 - Searchable Markdown scratchpad beside your terminals.
 - Instant local persistence with undo capability and 1-click Markdown clipboard export.
 
@@ -61,33 +69,34 @@ Built with **Electron**, **React 19**, **TypeScript**, **xterm.js**, and **node-
 
 ## Keyboard Shortcuts Reference
 
-| Shortcut | Action | Scope |
-| :--- | :--- | :--- |
-| <kbd>⌘</kbd> + <kbd>K</kbd> | Toggle Command Palette / Search | Global |
-| <kbd>⌘</kbd> + <kbd>1</kbd> | Switch to **Agents** Mode | Global |
-| <kbd>⌘</kbd> + <kbd>2</kbd> | Switch to **Code** Workspace | Global |
-| <kbd>⌘</kbd> + <kbd>3</kbd> | Switch to **AI Chat** Workspace | Global |
-| <kbd>⌘</kbd> + <kbd>4</kbd> | Switch to **Usage** Dashboard | Global |
-| <kbd>⌘</kbd> + <kbd>5</kbd> | Switch to **Notes** Workspace | Global |
-| <kbd>⌘</kbd> + <kbd>6</kbd> | Switch to **API Studio** | Global |
-| <kbd>⌘</kbd> + <kbd>B</kbd> | Toggle Left Sidebar | Global |
-| <kbd>⌘</kbd> + <kbd>⇧</kbd> + <kbd>F</kbd> | Toggle Fullscreen / Maximize Active Pane | Global |
-| <kbd>⌘</kbd> + <kbd>T</kbd> | Open New Terminal | Global |
-| <kbd>⌘</kbd> + <kbd>W</kbd> | Close Current Pane (with active agent protection) | Global |
-| <kbd>⌘</kbd> + <kbd>]</kbd> / <kbd>[</kbd> | Cycle Next / Previous Pane | Global |
-| <kbd>⌘</kbd> + <kbd>+</kbd> / <kbd>-</kbd> / <kbd>0</kbd> | Zoom In / Zoom Out / Reset Terminal Font | Global |
-| <kbd>y</kbd> | **Approve** current blocked command | Active Waiting Terminal |
-| <kbd>n</kbd> | **Deny** current blocked command | Active Waiting Terminal |
-| <kbd>↑</kbd> / <kbd>↓</kbd> | Navigate Swarm Agent List | Swarm Controls |
-| <kbd>Space</kbd> / <kbd>Enter</kbd> | Focus Selected Swarm Agent | Swarm Controls |
+| Shortcut                                                  | Action                                            | Scope                   |
+| :-------------------------------------------------------- | :------------------------------------------------ | :---------------------- |
+| <kbd>⌘</kbd> + <kbd>K</kbd>                               | Toggle Command Palette / Search                   | Global                  |
+| <kbd>⌘</kbd> + <kbd>1</kbd>                               | Switch to **Agents** Mode                         | Global                  |
+| <kbd>⌘</kbd> + <kbd>2</kbd>                               | Switch to **Code** Workspace                      | Global                  |
+| <kbd>⌘</kbd> + <kbd>3</kbd>                               | Switch to **AI Chat** Workspace                   | Global                  |
+| <kbd>⌘</kbd> + <kbd>4</kbd>                               | Switch to **Usage** Dashboard                     | Global                  |
+| <kbd>⌘</kbd> + <kbd>5</kbd>                               | Switch to **Notes** Workspace                     | Global                  |
+| <kbd>⌘</kbd> + <kbd>6</kbd>                               | Switch to **API Studio**                          | Global                  |
+| <kbd>⌘</kbd> + <kbd>B</kbd>                               | Toggle Left Sidebar                               | Global                  |
+| <kbd>⌘</kbd> + <kbd>⇧</kbd> + <kbd>F</kbd>                | Toggle Fullscreen / Maximize Active Pane          | Global                  |
+| <kbd>⌘</kbd> + <kbd>T</kbd>                               | Open New Terminal                                 | Global                  |
+| <kbd>⌘</kbd> + <kbd>W</kbd>                               | Close Current Pane (with active agent protection) | Global                  |
+| <kbd>⌘</kbd> + <kbd>]</kbd> / <kbd>[</kbd>                | Cycle Next / Previous Pane                        | Global                  |
+| <kbd>⌘</kbd> + <kbd>+</kbd> / <kbd>-</kbd> / <kbd>0</kbd> | Zoom In / Zoom Out / Reset Terminal Font          | Global                  |
+| <kbd>y</kbd>                                              | **Approve** current blocked command               | Active Waiting Terminal |
+| <kbd>n</kbd>                                              | **Deny** current blocked command                  | Active Waiting Terminal |
+| <kbd>↑</kbd> / <kbd>↓</kbd>                               | Navigate Swarm Agent List                         | Swarm Controls          |
+| <kbd>Space</kbd> / <kbd>Enter</kbd>                       | Focus Selected Swarm Agent                        | Swarm Controls          |
 
-*(Note: On Windows and Linux, use <kbd>Ctrl</kbd> in place of <kbd>⌘</kbd>).*
+_(Note: On Windows and Linux, use <kbd>Ctrl</kbd> in place of <kbd>⌘</kbd>)._
 
 ---
 
 ## Getting Started
 
 ### Prerequisites
+
 - **Node.js**: v18.0.0 or higher (v20+ recommended)
 - **npm**: v9.0.0 or higher
 - **C/C++ Build Tools**: Required by `node-pty` native compilation:
@@ -98,16 +107,19 @@ Built with **Electron**, **React 19**, **TypeScript**, **xterm.js**, and **node-
 ### Installation
 
 1. **Clone the repository:**
+
    ```bash
    git clone https://github.com/Lokknath/ai-terminal-app.git
    cd ai-terminal-app
    ```
 
 2. **Install dependencies:**
+
    ```bash
    npm install
    ```
-   *(If `node-pty` requires rebuilding for your local Electron version, run `npm run postinstall`).*
+
+   _(If `node-pty` requires rebuilding for your local Electron version, run `npm run postinstall`)._
 
 3. **Launch in development mode:**
    ```bash

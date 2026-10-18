@@ -153,11 +153,7 @@ export default function StatusBar({
             onClick={copyActivePath}
             title="Click to copy active terminal working directory"
           >
-            {copiedPath ? (
-              <Check size={11} color="#10b981" />
-            ) : (
-              <Copy size={11} color="#94a3b8" />
-            )}
+            {copiedPath ? <Check size={11} color="#10b981" /> : <Copy size={11} color="#94a3b8" />}
             <span className="status-bar-path">{activeTerminal.cwd || '~'}</span>
             {copiedPath && <span className="status-bar-copied">Copied!</span>}
           </button>

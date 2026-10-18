@@ -309,9 +309,14 @@ function createWindow(): BrowserWindow {
     }
   })
 
-  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-    console.error(`[Renderer Load Failed] Code: ${errorCode}, Desc: ${errorDescription}, URL: ${validatedURL}`)
-  })
+  mainWindow.webContents.on(
+    'did-fail-load',
+    (_event, errorCode, errorDescription, validatedURL) => {
+      console.error(
+        `[Renderer Load Failed] Code: ${errorCode}, Desc: ${errorDescription}, URL: ${validatedURL}`
+      )
+    }
+  )
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     void openSafeExternal(details.url)

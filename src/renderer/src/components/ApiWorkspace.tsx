@@ -103,7 +103,9 @@ export default function ApiWorkspace(): JSX.Element {
   const [saved, setSaved] = useState<SavedRequest[]>(() => readArray(savedKey))
   const [history, setHistory] = useState<HistoryItem[]>(() => readArray(historyKey))
   const [response, setResponse] = useState<ApiResponseOutput | null>(null)
-  const [responseTab, setResponseTab] = useState<'body' | 'headers' | 'axios' | 'curl' | 'fetch'>('body')
+  const [responseTab, setResponseTab] = useState<'body' | 'headers' | 'axios' | 'curl' | 'fetch'>(
+    'body'
+  )
   const [activeId, setActiveId] = useState<string | null>(null)
   const activeRequestRef = useRef<string | null>(null)
   const [error, setError] = useState('')
@@ -684,7 +686,10 @@ export default function ApiWorkspace(): JSX.Element {
                     <Copy size={14} /> Copy
                   </button>
                 </div>
-                <pre className="api-response-body" style={{ maxHeight: '420px', overflowY: 'auto' }}>
+                <pre
+                  className="api-response-body"
+                  style={{ maxHeight: '420px', overflowY: 'auto' }}
+                >
                   {responseText || '(empty response)'}
                 </pre>
                 {response.truncated && (
@@ -699,10 +704,17 @@ export default function ApiWorkspace(): JSX.Element {
                 <Braces size={28} />
                 <h3>Ready when you are</h3>
                 <p>
-                  Enter an endpoint above or import a cURL command. Status, timing, headers, and code
-                  will appear here.
+                  Enter an endpoint above or import a cURL command. Status, timing, headers, and
+                  code will appear here.
                 </p>
-                <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginTop: '12px' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: '8px',
+                    justifyContent: 'center',
+                    marginTop: '12px'
+                  }}
+                >
                   <button
                     type="button"
                     onClick={() => setShowImportModal(true)}
@@ -792,8 +804,8 @@ export default function ApiWorkspace(): JSX.Element {
               </button>
             </div>
             <p style={{ margin: 0, fontSize: '13px', color: '#94a3b8', lineHeight: 1.5 }}>
-              Paste your raw multiline cURL command (with headers, -b cookies, query parameters, or body).
-              Nexus will parse and convert it into a structured request and Axios code.
+              Paste your raw multiline cURL command (with headers, -b cookies, query parameters, or
+              body). Nexus will parse and convert it into a structured request and Axios code.
             </p>
             <textarea
               value={importCurlText}

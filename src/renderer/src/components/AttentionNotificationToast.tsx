@@ -1,12 +1,5 @@
 import { useState } from 'react'
-import {
-  CheckCircle2,
-  ChevronRight,
-  ShieldAlert,
-  ThumbsDown,
-  ThumbsUp,
-  X
-} from 'lucide-react'
+import { CheckCircle2, ChevronRight, ShieldAlert, ThumbsDown, ThumbsUp, X } from 'lucide-react'
 import { useApp } from '../store/AppContext'
 
 export default function AttentionNotificationToast(): JSX.Element | null {
@@ -187,7 +180,14 @@ export default function AttentionNotificationToast(): JSX.Element | null {
           : 'Task execution completed successfully'}
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: '8px'
+        }}
+      >
         <button
           type="button"
           onClick={handleJump}
@@ -269,8 +269,11 @@ export default function AttentionNotificationToast(): JSX.Element | null {
       </div>
 
       {activeAlerts.length > 1 && (
-        <div style={{ fontSize: '10.5px', color: '#64748b', textAlign: 'center', marginTop: '-4px' }}>
-          +{activeAlerts.length - 1} other agent notification{activeAlerts.length - 1 > 1 ? 's' : ''}
+        <div
+          style={{ fontSize: '10.5px', color: '#64748b', textAlign: 'center', marginTop: '-4px' }}
+        >
+          +{activeAlerts.length - 1} other agent notification
+          {activeAlerts.length - 1 > 1 ? 's' : ''}
         </div>
       )}
     </div>
