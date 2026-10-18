@@ -22,7 +22,11 @@ import {
   AlertCircle,
   Sparkles,
   Copy,
-  MoreHorizontal
+  MoreHorizontal,
+  GitBranch,
+  Zap,
+  Key,
+  FileCode
 } from 'lucide-react'
 import {
   AIAccount,
@@ -35,6 +39,8 @@ import {
   stripAnsi,
   type AgentDetectionResult
 } from '../utils/agent-state-detector'
+import EnvInspectorModal from './EnvInspectorModal'
+import type { GitBranchInfo } from '../../../preload'
 
 interface TerminalPaneProps {
   id: string
@@ -293,6 +299,57 @@ export default function TerminalPane({
   useEffect(() => {
     activeEnvRef.current = activeEnv
   }, [activeEnv])
+
+  const [gitInfo, setGitInfo] = useState<GitBranchInfo | null>(null)
+  const [copiedBranch, setCopiedBranch] = useState(false)
+  const [showEnvModal, setShowEnvModal] = useState(false)
+  const [showSnippetsMenu, setShowSnippetsMenu] = useState(false)
+  const snippetsMenuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!cwd) return
+    let active = true
+    const updateGit = async (): Promise<void> => {
+      try {
+        const info = await window.api.getGitInfo(cwd)
+        if (active) setGitInfo(info)
+      } catch {
+        if (active) setGitInfo(null)
+      }
+    }
+    updateGit()
+    const interval = setInterval(updateGit, 8000)
+    return () => {
+      active = false
+      clearInterval(interval)
+    }
+  }, [cwd])
+
+  const forceKillAndReset = (): void => {
+    setShowMoreMenu(false)
+    if (termInstanceRef.current) {
+      termInstanceRef.current.write(
+        '\r\n\x1b[31;1m⚡ Sending SIGKILL to process group...\x1b[0m\r\n'
+      )
+    }
+    window.api.forceKillTerminal(id)
+    setTimeout(() => {
+      window.electron.ipcRenderer.send('pty-restart', id, name, cwd, command, activeEnv)
+      if (termInstanceRef.current) {
+        termInstanceRef.current.write(
+          '\x1b[32m✔ Shell reset cleanly with fresh process group\x1b[0m\r\n\r\n'
+        )
+      }
+    }, 250)
+  }
+
+  const insertSnippet = (snippet: string, execute = true): void => {
+    setShowSnippetsMenu(false)
+    setShowMoreMenu(false)
+    const toSend = execute ? `${snippet}\r` : snippet
+    window.electron.ipcRenderer.send('pty-write', id, toSend)
+    termInstanceRef.current?.focus()
+  }
 
   const provider = getProvider(providerId)
 
@@ -1241,6 +1298,62 @@ export default function TerminalPane({
             </button>
           )}
 
+          {/* Git Branch & Status Badge */}
+          {gitInfo?.isGit && gitInfo.branch && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                if (gitInfo.branch) {
+                  navigator.clipboard.writeText(gitInfo.branch)
+                  setCopiedBranch(true)
+                  setTimeout(() => setCopiedBranch(false), 1500)
+                }
+              }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '2px 6px',
+                borderRadius: '4px',
+                border: gitInfo.dirty
+                  ? '1px solid rgba(245, 158, 11, 0.3)'
+                  : '1px solid rgba(16, 185, 129, 0.25)',
+                backgroundColor: gitInfo.dirty
+                  ? 'rgba(245, 158, 11, 0.08)'
+                  : 'rgba(16, 185, 129, 0.08)',
+                color: copiedBranch ? '#10b981' : gitInfo.dirty ? '#fbbf24' : '#34d399',
+                fontSize: '10.5px',
+                cursor: 'pointer',
+                maxWidth: '160px',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                fontWeight: 500,
+                transition: 'all 0.15s ease'
+              }}
+              title={`Git Branch: ${gitInfo.branch}${gitInfo.dirty ? ` (${gitInfo.modifiedCount} modified)` : ' (clean)'} — Click to copy branch name`}
+            >
+              <GitBranch size={10} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {gitInfo.branch}
+              </span>
+              {gitInfo.dirty && (
+                <span
+                  style={{
+                    fontSize: '9px',
+                    backgroundColor: 'rgba(245, 158, 11, 0.2)',
+                    borderRadius: '8px',
+                    padding: '0 4px',
+                    fontWeight: 700
+                  }}
+                >
+                  ● {gitInfo.modifiedCount}
+                </span>
+              )}
+            </button>
+          )}
+
           {/* Paste feedback pill */}
           {pasteFeedback && (
             <span
@@ -1269,6 +1382,135 @@ export default function TerminalPane({
           }}
           ref={splitMenuRef}
         >
+          {/* Quick Dev Snippets */}
+          <div style={{ position: 'relative' }} ref={snippetsMenuRef}>
+            <button
+              onClick={() => setShowSnippetsMenu(!showSnippetsMenu)}
+              title="Quick Developer Snippets"
+              style={{
+                background: showSnippetsMenu ? 'rgba(117,157,255,0.2)' : 'transparent',
+                border: showSnippetsMenu
+                  ? '1px solid rgba(117,157,255,0.4)'
+                  : '1px solid rgba(255,255,255,0.1)',
+                color: showSnippetsMenu ? '#8baeff' : '#888',
+                cursor: 'pointer',
+                borderRadius: '4px',
+                padding: '2px 5px',
+                display: 'flex',
+                alignItems: 'center',
+                flexShrink: 0,
+                transition: 'all 0.15s'
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.color = '#fff'
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.3)'
+              }}
+              onMouseOut={(e) => {
+                if (!showSnippetsMenu) {
+                  e.currentTarget.style.color = '#888'
+                  e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'
+                }
+              }}
+            >
+              <FileCode size={11} />
+            </button>
+
+            {showSnippetsMenu && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 4px)',
+                  right: 0,
+                  backgroundColor: '#161922',
+                  border: '1px solid rgba(117, 157, 255, 0.35)',
+                  borderRadius: '8px',
+                  padding: '6px',
+                  boxShadow: '0 12px 32px rgba(0,0,0,0.85)',
+                  zIndex: 2000,
+                  minWidth: '220px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '2px'
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: '9.5px',
+                    fontWeight: 700,
+                    color: '#8baeff',
+                    textTransform: 'uppercase',
+                    padding: '3px 8px'
+                  }}
+                >
+                  Quick Dev Snippets
+                </div>
+                {[
+                  { label: 'git status', cmd: 'git status' },
+                  { label: 'git diff', cmd: 'git diff' },
+                  { label: 'git log -n 5 --oneline', cmd: 'git log -n 5 --oneline' },
+                  { label: 'npm run dev', cmd: 'npm run dev' },
+                  { label: 'npm test', cmd: 'npm test' },
+                  { label: 'npm run build', cmd: 'npm run build' },
+                  { label: 'lsof -i :3000', cmd: 'lsof -i :3000' }
+                ].map((snip) => (
+                  <button
+                    key={snip.cmd}
+                    onClick={() => insertSnippet(snip.cmd)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '5px 8px',
+                      background: 'transparent',
+                      border: 'none',
+                      borderRadius: '4px',
+                      color: '#eee',
+                      fontSize: '11px',
+                      fontFamily: 'monospace',
+                      cursor: 'pointer',
+                      textAlign: 'left'
+                    }}
+                    onMouseOver={(e) =>
+                      (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.06)')
+                    }
+                    onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                  >
+                    <span>{snip.label}</span>
+                    <span style={{ fontSize: '9px', color: '#666' }}>↵</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Force Kill (kill -9) & Reset Shell */}
+          <button
+            onClick={forceKillAndReset}
+            title="⚡ Force Kill Runaway Processes (kill -9) & Reset Shell"
+            style={{
+              background: 'rgba(239, 68, 68, 0.08)',
+              border: '1px solid rgba(239, 68, 68, 0.25)',
+              color: '#f87171',
+              cursor: 'pointer',
+              borderRadius: '4px',
+              padding: '2px 5px',
+              display: 'flex',
+              alignItems: 'center',
+              flexShrink: 0,
+              transition: 'all 0.15s'
+            }}
+            onMouseOver={(e) => {
+              e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.22)'
+              e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.45)'
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.08)'
+              e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.25)'
+            }}
+          >
+            <Zap size={11} />
+          </button>
+
           {/* Restart Terminal */}
           <button
             onClick={restartTerminal}
@@ -1498,6 +1740,55 @@ export default function TerminalPane({
                   onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                 >
                   <RotateCw size={11} color="#ff9aa4" /> Clear Terminal (⌘K)
+                </button>
+                <button
+                  type="button"
+                  onClick={forceKillAndReset}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '5px 8px',
+                    background: 'transparent',
+                    border: 'none',
+                    borderRadius: '4px',
+                    color: '#f87171',
+                    fontSize: '11px',
+                    cursor: 'pointer',
+                    textAlign: 'left'
+                  }}
+                  onMouseOver={(e) =>
+                    (e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.12)')
+                  }
+                  onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                >
+                  <Zap size={11} color="#f87171" /> Force Kill & Reset Shell (kill -9)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowMoreMenu(false)
+                    setShowEnvModal(true)
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '5px 8px',
+                    background: 'transparent',
+                    border: 'none',
+                    borderRadius: '4px',
+                    color: '#8baeff',
+                    fontSize: '11px',
+                    cursor: 'pointer',
+                    textAlign: 'left'
+                  }}
+                  onMouseOver={(e) =>
+                    (e.currentTarget.style.backgroundColor = 'rgba(117,157,255,0.1)')
+                  }
+                  onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                >
+                  <Key size={11} color="#8baeff" /> Inspect Environment Variables...
                 </button>
 
                 <div
@@ -2570,6 +2861,13 @@ export default function TerminalPane({
           </button>
         </div>
       )}
+
+      <EnvInspectorModal
+        isOpen={showEnvModal}
+        onClose={() => setShowEnvModal(false)}
+        env={activeEnv}
+        title={name}
+      />
     </div>
   )
 }

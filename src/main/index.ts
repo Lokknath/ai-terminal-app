@@ -14,6 +14,13 @@ import { join } from 'path'
 import fs from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { initPtyManager, cleanupAllPty, emergencyCleanupSync } from './pty-manager'
+import { initAgentRegistry } from './agent-registry'
+import { initAccountManager } from './account-manager'
+import { initFileManager } from './file-manager'
+import { initApiClient } from './api-client'
+import { startOAuthServer } from './oauth-server'
+import { initDevToolsManager } from './dev-tools-manager'
 
 // Prevent silent crashes on unhandled errors
 process.on('uncaughtException', (error) => {
@@ -23,7 +30,56 @@ process.on('unhandledRejection', (reason) => {
   console.error('[Main Process Unhandled Rejection]', reason)
 })
 
+let hasCleanedUp = false
+export function handleEmergencyTeardown(source: string): void {
+  if (hasCleanedUp) return
+  hasCleanedUp = true
+  console.log(`[Lifecycle] Emergency teardown initiated by ${source}`)
+  try {
+    emergencyCleanupSync()
+  } catch (err) {
+    console.error('[Lifecycle] emergencyCleanupSync failed:', err)
+  }
+  removeSingletonLocksSync()
+}
+
+// Process termination signal handlers to ensure child processes never become orphaned
+process.on('SIGINT', () => {
+  handleEmergencyTeardown('SIGINT')
+  process.exit(0)
+})
+process.on('SIGTERM', () => {
+  handleEmergencyTeardown('SIGTERM')
+  process.exit(0)
+})
+process.on('SIGHUP', () => {
+  handleEmergencyTeardown('SIGHUP')
+  process.exit(0)
+})
+process.on('exit', () => {
+  handleEmergencyTeardown('process.exit')
+})
+
 // Clean up orphaned POSIX singleton symlinks left behind by abruptly terminated instances
+function removeSingletonLocksSync(): void {
+  try {
+    const userDataPath = app.getPath('userData')
+    const lockFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket']
+    for (const file of lockFiles) {
+      const fullPath = join(userDataPath, file)
+      try {
+        if (fs.existsSync(fullPath)) {
+          fs.unlinkSync(fullPath)
+        }
+      } catch {
+        // ignore
+      }
+    }
+  } catch {
+    // ignore
+  }
+}
+
 function cleanStaleSingletonLocks(): void {
   try {
     const userDataPath = app.getPath('userData')
@@ -192,11 +248,34 @@ function setupApplicationMenu(): void {
               { role: 'hideOthers' as const },
               { role: 'unhide' as const },
               { type: 'separator' as const },
+              {
+                label: 'Force Quit & Kill All Subprocesses',
+                accelerator: 'CommandOrControl+Alt+Q',
+                click: (): void => {
+                  handleEmergencyTeardown('Menu Force Quit')
+                  app.exit(0)
+                }
+              },
               { role: 'quit' as const }
             ]
           }
         ]
-      : []),
+      : [
+          {
+            label: 'File',
+            submenu: [
+              {
+                label: 'Force Quit & Kill All Subprocesses',
+                accelerator: 'CommandOrControl+Alt+Q',
+                click: (): void => {
+                  handleEmergencyTeardown('Menu Force Quit')
+                  app.exit(0)
+                }
+              },
+              { role: 'quit' as const }
+            ]
+          }
+        ]),
     {
       label: 'Edit',
       submenu: [
@@ -368,13 +447,6 @@ function createWindow(): BrowserWindow {
 
   return mainWindow
 }
-
-import { initPtyManager, cleanupAllPty } from './pty-manager'
-import { initAgentRegistry } from './agent-registry'
-import { initAccountManager } from './account-manager'
-import { initFileManager } from './file-manager'
-import { initApiClient } from './api-client'
-import { startOAuthServer } from './oauth-server'
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
@@ -551,6 +623,7 @@ app.whenReady().then(() => {
   initAccountManager()
   initFileManager(mainWindow)
   initApiClient()
+  initDevToolsManager()
 
   // Graceful App Restart & Clean Quit IPC handlers
   ipcMain.handle('app-restart', () => {
@@ -559,6 +632,10 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('app-graceful-quit', () => {
     app.quit()
+  })
+  ipcMain.handle('app-force-quit', () => {
+    handleEmergencyTeardown('app-force-quit IPC')
+    app.exit(0)
   })
 
   app.on('activate', function () {
@@ -592,6 +669,7 @@ app.on('before-quit', (event) => {
   // Once PTYs have been retired, exit directly rather than leaving Nexus open.
   const fallback = setTimeout(() => {
     console.warn('Terminal shutdown exceeded six seconds; exiting Nexus.')
+    removeSingletonLocksSync()
     app.exit(0)
   }, 6_000)
   // Let the renderer's short workspace and notes autosave timers finish before
@@ -601,6 +679,7 @@ app.on('before-quit', (event) => {
     new Promise<void>((resolve) => setTimeout(resolve, 450))
   ]).finally(() => {
     clearTimeout(fallback)
+    removeSingletonLocksSync()
     app.exit(0)
   })
 })

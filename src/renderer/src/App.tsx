@@ -15,6 +15,7 @@ import FolderExplorerModal from './components/FolderExplorerModal'
 import NewPanelModal from './components/NewPanelModal'
 import AttentionNotificationToast from './components/AttentionNotificationToast'
 import StatusBar from './components/StatusBar'
+import DevPortManagerModal from './components/DevPortManagerModal'
 import { ArrowLeft, Move, Terminal, Plus, Bot, Globe, Columns, Sparkles } from 'lucide-react'
 import { getAccountEnv, getProviderCliCommand, type AIAccount } from './types'
 import 'react-grid-layout/css/styles.css'
@@ -347,12 +348,19 @@ function AppShell(): JSX.Element {
     'left' | 'right' | 'top' | 'bottom' | 'full' | 'dock' | null
   >(null)
   const [showNewModal, setShowNewModal] = useState(false)
+  const [showPortManager, setShowPortManager] = useState(false)
   const [justCycledId, setJustCycledId] = useState<string | null>(null)
   const lastCmdWRef = useRef<{ id: string; time: number } | null>(null)
   const sidebarOpenRef = useRef(state.sidebarOpen)
   const codeWorkspaceRef = useRef<HTMLDivElement>(null)
   const [gridWidth, setGridWidth] = useState(1200)
   const [gridHeight, setGridHeight] = useState(760)
+
+  useEffect(() => {
+    const handler = (): void => setShowPortManager(true)
+    window.addEventListener('nexus-open-port-manager', handler)
+    return () => window.removeEventListener('nexus-open-port-manager', handler)
+  }, [])
 
   useEffect(() => {
     const container = codeWorkspaceRef.current
@@ -386,7 +394,11 @@ function AppShell(): JSX.Element {
   }, [dispatch])
 
   const hasActiveModal =
-    showNewModal || state.showPalette || state.showSettings || state.folderExplorer.open
+    showNewModal ||
+    showPortManager ||
+    state.showPalette ||
+    state.showSettings ||
+    state.folderExplorer.open
 
   useEffect(() => {
     dispatch({
@@ -2865,6 +2877,7 @@ function AppShell(): JSX.Element {
         onToggleSidebar={() => dispatch({ type: 'TOGGLE_SIDEBAR' })}
         onOpenPalette={() => dispatch({ type: 'SET_SHOW_PALETTE', show: true })}
         onNewTerminal={() => addTerminal('~')}
+        onOpenPortManager={() => setShowPortManager(true)}
         onToggleFocus={() => {
           if (state.viewMode === 'full') {
             dispatch({ type: 'SET_VIEW_MODE', viewMode: 'grid' })
@@ -2943,6 +2956,8 @@ function AppShell(): JSX.Element {
           onClose={() => dispatch({ type: 'CLOSE_FOLDER_EXPLORER' })}
         />
       )}
+
+      <DevPortManagerModal isOpen={showPortManager} onClose={() => setShowPortManager(false)} />
 
       {/* Floating Actionable In-App Attention Center for Waiting Agents & Subscriptions */}
       <AttentionNotificationToast />

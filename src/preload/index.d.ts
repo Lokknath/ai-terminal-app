@@ -87,6 +87,20 @@ export interface ApiResponseOutput {
   truncated: boolean
 }
 
+export interface ListeningPort {
+  port: number
+  pid: number
+  command: string
+  user: string
+}
+
+export interface GitBranchInfo {
+  isGit: boolean
+  branch?: string
+  dirty?: boolean
+  modifiedCount?: number
+}
+
 declare global {
   interface Window {
     electron: ElectronAPI
@@ -127,6 +141,10 @@ declare global {
       broadcastTerminalInput: (input: string) => void
       sendToTerminalTargets: (targetIds: string[], input: string) => void
       requestTerminalHistory: (id: string) => void
+      forceKillTerminal: (id: string) => void
+      getListeningPorts: () => Promise<ListeningPort[]>
+      killPortProcess: (pid: number) => Promise<boolean>
+      getGitInfo: (cwd: string) => Promise<GitBranchInfo>
       saveWorkspaceSession: (data: unknown) => Promise<boolean>
       loadWorkspaceSession: () => Promise<unknown>
       getOAuthLoopbackUrl: (providerId?: string) => Promise<string>
@@ -137,6 +155,7 @@ declare global {
       ) => Promise<{ success: boolean; email?: string }>
       relaunchApp: () => Promise<void>
       quitApp: () => Promise<void>
+      forceQuitApp: () => Promise<void>
     }
   }
 }

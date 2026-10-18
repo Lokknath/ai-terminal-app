@@ -88,6 +88,20 @@ export interface ApiResponseOutput {
   truncated: boolean
 }
 
+export interface ListeningPort {
+  port: number
+  pid: number
+  command: string
+  user: string
+}
+
+export interface GitBranchInfo {
+  isGit: boolean
+  branch?: string
+  dirty?: boolean
+  modifiedCount?: number
+}
+
 // Custom APIs for renderer
 const api = {
   // ─── BYOA Detection ───────────────────────────
@@ -148,6 +162,12 @@ const api = {
   sendToTerminalTargets: (targetIds: string[], input: string): void =>
     ipcRenderer.send('pty-send-to-targets', { targetIds, input }),
   requestTerminalHistory: (id: string): void => ipcRenderer.send('pty-request-history', id),
+  forceKillTerminal: (id: string): void => ipcRenderer.send('pty-force-kill', id),
+
+  // ─── Developer Tools (Ports & Git) ────────────
+  getListeningPorts: (): Promise<ListeningPort[]> => ipcRenderer.invoke('get-listening-ports'),
+  killPortProcess: (pid: number): Promise<boolean> => ipcRenderer.invoke('kill-port-process', pid),
+  getGitInfo: (cwd: string): Promise<GitBranchInfo> => ipcRenderer.invoke('get-git-info', cwd),
 
   // ─── Workspace Session & Google SSO ───────────
   saveWorkspaceSession: (data: unknown): Promise<boolean> =>
@@ -165,7 +185,8 @@ const api = {
 
   // ─── App Lifecycle ────────────────────────────
   relaunchApp: (): Promise<void> => ipcRenderer.invoke('app-restart'),
-  quitApp: (): Promise<void> => ipcRenderer.invoke('app-graceful-quit')
+  quitApp: (): Promise<void> => ipcRenderer.invoke('app-graceful-quit'),
+  forceQuitApp: (): Promise<void> => ipcRenderer.invoke('app-force-quit')
 }
 
 if (process.contextIsolated) {

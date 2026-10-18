@@ -29,7 +29,9 @@ import {
   ZoomIn,
   ZoomOut,
   RotateCcw,
-  FileCode
+  FileCode,
+  Server,
+  Zap
 } from 'lucide-react'
 import { AIAccount, getAccountEnv, getProviderCliCommand } from '../types'
 import { LayoutPresetType } from './HeaderBar'
@@ -487,6 +489,44 @@ export default function CommandPalette({
                   close()
                 },
                 state.keepAwake ? '#10b981' : '#f59e0b'
+              )
+            ])}
+
+          {/* Developer Power Tools & Lifecycle Section */}
+          {(categoryFilter === 'all' || categoryFilter === 'workspace') &&
+            renderSection('🛠 Developer Power Tools & Process Lifecycle', [
+              renderItem(
+                <Server size={16} />,
+                'Inspect & Kill Active Dev Ports (Port Killer)...',
+                'Scan listening ports (3000, 5173, etc.) and kill blocking processes with 1 click',
+                () => {
+                  window.dispatchEvent(new CustomEvent('nexus-open-port-manager'))
+                  close()
+                },
+                '#60a5fa'
+              ),
+              renderItem(
+                <Zap size={16} />,
+                'Force Kill Active Terminal (kill -9)',
+                `Terminate process group of active session (${state.activeSessionId ? 'selected pane' : 'first terminal'})`,
+                () => {
+                  const targetId = state.activeSessionId || state.terminals[0]?.id
+                  if (targetId) {
+                    window.api.forceKillTerminal(targetId)
+                  }
+                  close()
+                },
+                '#f87171',
+                state.terminals.length === 0
+              ),
+              renderItem(
+                <Zap size={16} />,
+                '⚡ Force Quit Application & Kill Subprocesses (⌘⌥Q)',
+                'Emergency termination of Nexus and all child process groups without hanging',
+                () => {
+                  window.api.forceQuitApp()
+                },
+                '#ef4444'
               )
             ])}
 

@@ -8,7 +8,8 @@ import {
   Check,
   Coffee,
   Command,
-  Maximize2
+  Maximize2,
+  Server
 } from 'lucide-react'
 import { useApp } from '../store/AppContext'
 
@@ -17,13 +18,15 @@ interface StatusBarProps {
   onOpenPalette?: () => void
   onNewTerminal?: () => void
   onToggleFocus?: () => void
+  onOpenPortManager?: () => void
 }
 
 export default function StatusBar({
   onToggleSidebar,
   onOpenPalette,
   onNewTerminal,
-  onToggleFocus
+  onToggleFocus,
+  onOpenPortManager
 }: StatusBarProps): JSX.Element {
   const { state, dispatch } = useApp()
   const [copiedPath, setCopiedPath] = useState(false)
@@ -213,6 +216,20 @@ export default function StatusBar({
           title="Toggle Focus / Full (⌘⇧F)"
         >
           <Maximize2 size={10} />
+        </button>
+
+        <button
+          type="button"
+          className="status-bar-tool-btn"
+          onClick={() => {
+            if (onOpenPortManager) onOpenPortManager()
+            else window.dispatchEvent(new CustomEvent('nexus-open-port-manager'))
+          }}
+          title="Inspect & Kill Active Dev Ports (3000, 5173, etc.)"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '0 6px' }}
+        >
+          <Server size={11} color="#60a5fa" />
+          <span style={{ fontSize: '10px', color: '#60a5fa', fontWeight: 600 }}>Ports</span>
         </button>
 
         <button

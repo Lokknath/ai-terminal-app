@@ -38,17 +38,66 @@ function send(owner: WebContents, channel: string, value: string | number): void
   if (!owner.isDestroyed()) owner.send(channel, value)
 }
 
-function stop(id: string, owner?: WebContents): void {
+function killProcessTree(pid: number, signal: NodeJS.Signals | string = 'SIGTERM'): void {
+  if (!pid) return
+  if (process.platform !== 'win32') {
+    try {
+      process.kill(-pid, signal)
+    } catch {
+      try {
+        process.kill(pid, signal)
+      } catch {
+        // Process already terminated
+      }
+    }
+  } else {
+    try {
+      process.kill(pid, signal)
+    } catch {
+      // Process already terminated
+    }
+  }
+}
+
+function stop(id: string, owner?: WebContents, force = false): void {
   const entry = processes.get(id)
   if (!entry || (owner && entry.owner !== owner)) return
   processes.delete(id) // Retire first so a late exit cannot remove a replacement.
   retiring.add(entry)
   if (entry.bootstrap) clearTimeout(entry.bootstrap)
+  const signal = force ? 'SIGKILL' : 'SIGTERM'
+  killProcessTree(entry.process.pid, signal)
   try {
-    entry.process.kill()
+    entry.process.kill(signal)
   } catch {
     // A shell may have exited before the close event arrives.
   }
+}
+
+export function forceKillPty(id: string, owner?: WebContents): void {
+  stop(id, owner, true)
+}
+
+export function emergencyCleanupSync(): void {
+  for (const entry of processes.values()) {
+    try {
+      if (entry.bootstrap) clearTimeout(entry.bootstrap)
+      killProcessTree(entry.process.pid, 'SIGKILL')
+      entry.process.kill('SIGKILL')
+    } catch {
+      // ignore
+    }
+  }
+  for (const entry of retiring) {
+    try {
+      killProcessTree(entry.process.pid, 'SIGKILL')
+      entry.process.kill('SIGKILL')
+    } catch {
+      // ignore
+    }
+  }
+  processes.clear()
+  retiring.clear()
 }
 
 function start(
@@ -177,6 +226,7 @@ export async function cleanupAllPty(): Promise<void> {
   await waitForExit(1200)
   for (const entry of retiring) {
     try {
+      killProcessTree(entry.process.pid, 'SIGKILL')
       entry.process.kill('SIGKILL')
     } catch {
       // It may have exited between the timeout and the force kill.
@@ -250,6 +300,11 @@ export function initPtyManager(): void {
     }
   })
   ipcMain.on('pty-kill', (event, id: string) => stop(id, event.sender))
+  ipcMain.on('pty-force-kill', (event, id: string) => {
+    if (typeof id === 'string') {
+      stop(id, event.sender, true)
+    }
+  })
   ipcMain.on('pty-broadcast', (_event, input: string) => {
     if (typeof input !== 'string') return
     for (const entry of processes.values()) {
