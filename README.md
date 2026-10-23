@@ -1,195 +1,237 @@
+<div align="center">
+
 # Nexus AI Terminal & Agent Swarm Workspace
 
-[![Electron](https://img.shields.io/badge/Electron-44.5-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
-[![React](https://img.shields.io/badge/React-19.2-61DAFB?logo=react&logoColor=black)](https://react.dev/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Vite](https://img.shields.io/badge/Vite-7.2-646CFF?logo=vite&logoColor=white)](https://vitejs.dev/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+**The autonomous AI agent command center, resilient terminal multiplexer, and API studio.**
 
-**Nexus** is an autonomous AI agent workspace, terminal multiplexer, and API studio built for engineers running multi-agent swarms (Claude Code, OpenAI Codex, Google Gemini, Ollama) alongside web research and backend services.
+[![Electron](https://img.shields.io/badge/Electron-44.5-47848F?style=for-the-badge&logo=electron&logoColor=white)](https://www.electronjs.org/)
+[![React](https://img.shields.io/badge/React-19.2-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Vite](https://img.shields.io/badge/Vite-7.3-646CFF?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
+[![License](https://img.shields.io/badge/License-MIT-10b981?style=for-the-badge)](LICENSE)
+[![Author](https://img.shields.io/badge/Author-Loknath%20Surabhi-2563eb?style=for-the-badge&logo=github)](https://github.com/Lokknath)
 
-Built with **Electron**, **React 19**, **TypeScript**, **xterm.js**, and **node-pty**, Nexus gives developers complete control over concurrent autonomous coding agents with intelligent attention alerts, 1-click approvals, resilient terminal multiplexing, and system sleep prevention.
+<br />
+
+<p align="center">
+  <a href="#-key-features">Features</a> •
+  <a href="#-quickstart--installation">Quickstart</a> •
+  <a href="#-architecture--codebase-overview">Architecture</a> •
+  <a href="#-keyboard-shortcuts-reference">Shortcuts</a> •
+  <a href="#-documentation-sitemap">Documentation</a> •
+  <a href="#-author--maintainer">Author</a>
+</p>
+
+</div>
 
 ---
 
-## Key Features
+## ⚡ Overview
 
-### 1. Autonomous AI Agent Swarm Orchestration
+**Nexus** is an autonomous AI agent command center, terminal multiplexer, and API studio engineered for developers orchestrating multi-agent swarms (**Google Gemini**, **Anthropic Claude Code**, **OpenAI Codex**, and **Ollama**) alongside web research and backend microservices.
 
-- **Swarm Command Runner**: Dispatch commands across all active terminals simultaneously or target specific agent subsets.
-- **Interactive Keyboard Swarm Navigation**: Navigate through running agents using <kbd>↑</kbd> / <kbd>↓</kbd> arrows and activate sessions instantly with <kbd>Space</kbd> or <kbd>Enter</kbd>.
-- **Live Agent Telemetry**: Automatic regex & output pattern detection identifying agent states in real time:
-  - 🟢 **Working / Executing**: Agent actively generating code or running commands.
-  - 🟡 **Waiting on Input**: Agent blocked waiting for command execution approval or user prompt.
+Built with **Electron 44**, **React 19**, **TypeScript 5.9**, **xterm.js 5.3**, and **node-pty 1.1**, Nexus gives developers complete control over concurrent autonomous coding agents with hardware-encrypted credential isolation, cross-terminal buffer piping, real-time attention alerts, 1-click approvals, dynamic font scaling, zero-drift developer stopwatch, and system sleep prevention.
+
+---
+
+## 🌟 Key Features
+
+### 1. Universal Credential & Profile Isolation
+- **Simultaneous Provider Accounts**: Run concurrent Claude Code, OpenAI Codex, and Google Gemini sessions with zero credential leakage or OAuth token collisions.
+- **Dedicated Sandbox Paths**:
+  - **Gemini / Antigravity CLI**: Dynamically isolated to `~/.gemini/antigravity-cli-<accountKey>/`.
+  - **Claude Code**: Sandboxed configuration in `~/.claude-<accountKey>.json`.
+  - **OpenAI Codex**: Sandboxed profiles in `~/.codex-<accountKey>.json`.
+- **Hardware-Encrypted Secrets**: API tokens and OAuth keys are encrypted using the operating system's native cryptographic vault via Electron `safeStorage` (Apple Keychain, Windows DPAPI, Linux Libsecret).
+- 📖 *Read the deep-dive: [Universal Credential Isolation Guide](docs/UNIVERSAL_CREDENTIAL_ISOLATION.md)*.
+
+### 2. Autonomous Swarm Orchestration & Telemetry
+- **Swarm Command Runner**: Dispatch instructions across all active terminals simultaneously or target specific provider groups.
+- **Real-Time Agent State Detection**:
+  - 🟢 **Working / Executing**: Agent actively synthesizing code or running commands.
+  - 🟡 **Waiting on Input**: Agent blocked awaiting human confirmation or tool execution approval.
   - ⚪ **Idle**: Session standing by ready for tasks.
+- **Interactive Swarm Navigation**: Cycle through active agents using <kbd>↑</kbd> / <kbd>↓</kbd> arrows and switch focus with <kbd>Space</kbd> or <kbd>Enter</kbd>.
 
-### 2. Intelligent Attention Center & Instant 1-Click Approvals
+### 3. Inter-Terminal Communication & SpeakDock
+- **SpeakDock Hub**: Dedicated floating communication hub for inter-terminal orchestration.
+- **Buffer Piping**: Select any source terminal and pipe its recent output or error trace directly into another terminal as prompt input (e.g. pipe a build error from Claude into Gemini for instant debugging).
+- **Agent Handoffs**: Transfer tasks and context seamlessly between different models.
+- 📖 *Read the deep-dive: [Inter-Terminal Communication Guide](docs/INTER_TERMINAL_COMMUNICATION.md)*.
 
-- **In-Pane Attention Action Banner**: Prominent visual banner when an agent requires execution confirmation.
-- **Direct Hotkey Approvals**: Press <kbd>y</kbd> to immediately approve or <kbd>n</kbd> to deny without having to type into terminal prompts.
-- **Attention Notification Center**: Interactive toast notifications for blocked agents with 1-click focus switching directly to the waiting terminal.
+### 4. Resilient Multiplexing & Proportional Resizing
+- **12 Responsive Layout Presets**: Solo, 2-Column Split, 3-Column Swarm, 4-Quadrant Workbench, Focus + Side Stack, and Auto-Balanced grids.
+- **Multi-Directional Drag Resizing**: 8-handle drag resizing preserves custom pane proportions across layout toggles.
+- **Dynamic Terminal Font Scaling**: Automatically scales terminal font size down (to 10px or 11px) in narrow split panes, completely eliminating ANSI prompt wrapping corruption with the Gemini / Claude CLIs.
+- **Sticky Top Focus Mode**: In single-terminal focus mode, navigation tabs remain permanently pinned at the top without vertical scrolling.
 
-### 3. Modern Ergonomics & Responsive Status Bar
+### 5. Folder-Scraped Sessions & Monotonic Numbering
+- **Scoped Directory Sessions**: Launch any AI agent or shell directly into any folder on your machine from the header or modal.
+- **Interactive Folder Pills**: Terminal headers feature an interactive badge showing the folder name with 1-click path copying.
+- **Monotonic Terminal Numbering**: Terminals are numbered sequentially per folder (`#1`, `#2`, `#3`) for unambiguous referencing.
+- **Inline Session Renaming**: Double-click any tab or pane header to rename it on the fly (<kbd>Enter</kbd> to save, <kbd>Esc</kbd> to discard).
 
-- **Raycast-Style Command Menu (<kbd>⌘K</kbd>)**: Centered fast launcher to search commands, execute layouts, launch CLIs, and switch workspaces.
-- **Unified 26px Bottom Status Bar**:
-  - Live session counter and swarm status pill with 1-click jump to blocked terminals.
-  - Active terminal Working Directory (CWD) pill with 1-click clipboard copy and feedback.
-  - Active AI Provider & Account badge (`🧠 Claude Code`, `🤖 ChatGPT`, `💎 Gemini`, `🌐 System Shell`).
-  - Direct keyboard shortcut indicators (<kbd>⌘K</kbd>, <kbd>⌘B</kbd>, <kbd>⌘⇧F</kbd>, <kbd>☕ Keep-Awake</kbd>).
+### 6. Zero-Drift Developer Stopwatch
+- **Top Header Station**: Positioned directly beside the India Standard Time (IST) clock.
+- **Wall-Clock Precision**: Uses differential timestamps (`Date.now() - startTime`) ensuring zero drift across app restarts, sleep cycles, or tab switching.
+- **Intuitive Controls**:
+  - Single click to **Start / Pause**.
+  - Double-click or right-click to **Reset** (`00:00`).
+  - Inline hover reset button.
+  - Keyboard accessible (<kbd>Enter</kbd>, <kbd>Space</kbd>, <kbd>Esc</kbd>).
 
-### 4. Resilient Terminal Multiplexing & Drag-and-Drop Tiling
+### 7. Intelligent Attention Center & 1-Click Approvals
+- **In-Pane Attention Action Banner**: High-visibility yellow banner appears the instant an agent prompts for command confirmation.
+- **Instant Hotkey Approvals**: Press <kbd>y</kbd> to approve or <kbd>n</kbd> to deny without having to type into terminal prompts.
+- **Safe Session Close Modal**: Attractive confirmation dialog prevents accidental termination of active coding agents.
 
-- **Responsive Grid & Snap Layouts**: Dynamic 12-column grid system with Solo, 2-Column Split, 3-Column Swarm, 4-Tile, and Focus+Tile layouts.
-- **Edge Snap Drop Zones**: Drag pane headers to screen edges to snap into Left 50%, Right 50%, Top 50%, Bottom 50%, or Dock to Sidebar.
-- **Streamlined Pane Header with `•••` More Menu**: Clean, uncrowded toolbar with quick actions (Send Enter, Paste Clipboard, Paste & Run, Copy All Output, Clear, Zoom Font `A-`/`A+`, Resize Width 100/67/50/33%, and Dock Dev Preview).
+### 8. API Studio (cURL & Axios-Curl Runner)
+- **Multi-Line cURL Parsing**: Parse complex multi-line cURL commands with cookies, authentication headers, and JSON payloads.
+- **Axios Code Converter**: 1-click conversion between raw cURL and structured Axios TypeScript/JavaScript code snippets.
+- **CORS-Free Execution**: Dispatches HTTP/HTTPS requests directly through Electron's main process, bypassing browser CORS restrictions.
 
-### 5. Run-When-Away Sleep Prevention
-
-- **System Power Guard**: Uses Electron's native `powerSaveBlocker` to automatically prevent macOS and Windows system sleep while any agent in the swarm is actively working.
+### 9. Run-When-Away Sleep Prevention
+- **System Power Guard**: Uses Electron's native `powerSaveBlocker` to automatically prevent system sleep while any agent in the swarm is working.
 - **Manual Toggle**: One-click coffee cup (<kbd>☕</kbd>) icon in the status bar to toggle keep-awake mode at will.
 
-### 6. Full cURL & Axios-Curl Request Runner (API Studio)
-
-- **Multi-Line cURL Parsing**: Parse complex multi-line cURL commands with cookies (`-b`), custom headers (`-H`), body payload, and authentication tokens.
-- **Axios Code Converter**: 1-click conversion between raw cURL and structured Axios JavaScript/TypeScript code snippets.
-- **CORS-Free Native HTTP Client**: Direct main-process execution allowing API requests without browser CORS restrictions.
-
-### 7. Isolated Multi-Account Web Browser
-
+### 10. Multi-Account Isolated Web Browser & Notes
 - **Partition Isolation**: Run separate, concurrent logins for Claude.ai, ChatGPT, and Google Gemini using isolated Electron session partitions (`persist:account-<id>`).
-- **DevTools Integration**: Open Chromium Developer Tools with one click on any web pane to inspect network traffic.
-
-### 8. Built-in Notes Workspace
-
-- Searchable Markdown scratchpad beside your terminals.
-- Instant local persistence with undo capability and 1-click Markdown clipboard export.
+- **Markdown Scratchpad**: Integrated local notes workspace with 1-click clipboard export.
 
 ---
 
-## Keyboard Shortcuts Reference
+## ⌨️ Keyboard Shortcuts Reference
 
-| Shortcut                                                  | Action                                            | Scope                   |
-| :-------------------------------------------------------- | :------------------------------------------------ | :---------------------- |
-| <kbd>⌘</kbd> + <kbd>K</kbd>                               | Toggle Command Palette / Search                   | Global                  |
-| <kbd>⌘</kbd> + <kbd>1</kbd>                               | Switch to **Agents** Mode                         | Global                  |
-| <kbd>⌘</kbd> + <kbd>2</kbd>                               | Switch to **Code** Workspace                      | Global                  |
-| <kbd>⌘</kbd> + <kbd>3</kbd>                               | Switch to **AI Chat** Workspace                   | Global                  |
-| <kbd>⌘</kbd> + <kbd>4</kbd>                               | Switch to **Usage** Dashboard                     | Global                  |
-| <kbd>⌘</kbd> + <kbd>5</kbd>                               | Switch to **Notes** Workspace                     | Global                  |
-| <kbd>⌘</kbd> + <kbd>6</kbd>                               | Switch to **API Studio**                          | Global                  |
-| <kbd>⌘</kbd> + <kbd>B</kbd>                               | Toggle Left Sidebar                               | Global                  |
-| <kbd>⌘</kbd> + <kbd>⇧</kbd> + <kbd>F</kbd>                | Toggle Fullscreen / Maximize Active Pane          | Global                  |
-| <kbd>⌘</kbd> + <kbd>T</kbd>                               | Open New Terminal                                 | Global                  |
-| <kbd>⌘</kbd> + <kbd>W</kbd>                               | Close Current Pane (with active agent protection) | Global                  |
-| <kbd>⌘</kbd> + <kbd>]</kbd> / <kbd>[</kbd>                | Cycle Next / Previous Pane                        | Global                  |
-| <kbd>⌘</kbd> + <kbd>+</kbd> / <kbd>-</kbd> / <kbd>0</kbd> | Zoom In / Zoom Out / Reset Terminal Font          | Global                  |
-| <kbd>y</kbd>                                              | **Approve** current blocked command               | Active Waiting Terminal |
-| <kbd>n</kbd>                                              | **Deny** current blocked command                  | Active Waiting Terminal |
-| <kbd>↑</kbd> / <kbd>↓</kbd>                               | Navigate Swarm Agent List                         | Swarm Controls          |
-| <kbd>Space</kbd> / <kbd>Enter</kbd>                       | Focus Selected Swarm Agent                        | Swarm Controls          |
+| Shortcut | Action | Scope |
+| :--- | :--- | :--- |
+| <kbd>⌘</kbd> + <kbd>K</kbd> | Toggle Command Palette / Search | Global |
+| <kbd>⌘</kbd> + <kbd>1</kbd> | Switch to **Code** Workspace | Global |
+| <kbd>⌘</kbd> + <kbd>2</kbd> | Switch to **Agent Swarm** Mode | Global |
+| <kbd>⌘</kbd> + <kbd>3</kbd> | Switch to **AI Chat** Workspace | Global |
+| <kbd>⌘</kbd> + <kbd>4</kbd> | Switch to **API Studio** | Global |
+| <kbd>⌘</kbd> + <kbd>5</kbd> | Switch to **Notes** Workspace | Global |
+| <kbd>⌘</kbd> + <kbd>B</kbd> | Toggle Left Sidebar | Global |
+| <kbd>⌘</kbd> + <kbd>T</kbd> | Open New Terminal | Global |
+| <kbd>⌘</kbd> + <kbd>W</kbd> | Close Current Pane (with active protection modal) | Global |
+| <kbd>⌘</kbd> + <kbd>⇧</kbd> + <kbd>F</kbd> | Toggle Fullscreen / Maximize Active Pane | Global |
+| <kbd>⌘</kbd> + <kbd>]</kbd> / <kbd>[</kbd> | Cycle Next / Previous Pane | Global |
+| <kbd>⌘</kbd> + <kbd>+</kbd> / <kbd>-</kbd> / <kbd>0</kbd> | Zoom In / Zoom Out / Reset Terminal Font | Global |
+| <kbd>y</kbd> / <kbd>n</kbd> | **Approve** / **Deny** current blocked agent command | Active Waiting Terminal |
+| <kbd>↑</kbd> / <kbd>↓</kbd> | Navigate Swarm Agent List | Swarm Controls |
+| <kbd>Space</kbd> / <kbd>Enter</kbd> | Focus Selected Swarm Agent | Swarm Controls |
 
-_(Note: On Windows and Linux, use <kbd>Ctrl</kbd> in place of <kbd>⌘</kbd>)._
+> *(Note: On Windows and Linux, use <kbd>Ctrl</kbd> in place of <kbd>⌘</kbd>).*  
+> 📖 *Full reference: [Keyboard Shortcuts Guide](docs/KEYBOARD_SHORTCUTS.md)*.
 
 ---
 
-## Getting Started
+## 🚀 Quickstart & Installation
 
 ### Prerequisites
-
 - **Node.js**: v18.0.0 or higher (v20+ recommended)
 - **npm**: v9.0.0 or higher
-- **C/C++ Build Tools**: Required by `node-pty` native compilation:
-  - **macOS**: Xcode Command Line Tools (`xcode-select --install`)
-  - **Linux**: `build-essential` and `python3`
-  - **Windows**: Visual Studio C++ Build Tools or `windows-build-tools`
+- **C/C++ Build Tools**: Required for `node-pty` native compilation:
+  - **macOS**: `xcode-select --install`
+  - **Linux**: `sudo apt install build-essential python3`
+  - **Windows**: Visual Studio C++ Build Tools
 
-### Installation
-
-1. **Clone the repository:**
-
-   ```bash
-   git clone https://github.com/Lokknath/ai-terminal-app.git
-   cd ai-terminal-app
-   ```
-
-2. **Install dependencies:**
-
-   ```bash
-   npm install
-   ```
-
-   _(If `node-pty` requires rebuilding for your local Electron version, run `npm run postinstall`)._
-
-3. **Launch in development mode:**
-   ```bash
-   npm run dev
-   ```
-
-### Building Desktop Installers
-
-To package Nexus into native distributable binaries for your operating system:
-
+### Installation & Development
 ```bash
-# Build for macOS (.dmg, .zip)
+# 1. Clone the repository
+git clone https://github.com/Lokknath/ai-terminal-app.git
+cd ai-terminal-app
+
+# 2. Install dependencies
+npm install
+
+# 3. Launch in development mode with HMR
+npm run dev
+```
+
+### Packaging Desktop Binaries
+```bash
+# Package for macOS (.dmg, .zip)
 npm run build:mac
 
-# Build for Windows (.exe installer)
-npm run build:win
+# Directly deploy to local macOS /Applications
+npm run deploy:mac
 
-# Build for Linux (.AppImage, .deb)
+# Package for Linux (.AppImage, .deb)
 npm run build:linux
 ```
 
-Outputs will be generated in the `dist/` directory.
-
 ---
 
-## Architecture & Codebase Overview
+## 🏗️ Architecture & Codebase Overview
 
 ```text
 ai-terminal-app/
+├── docs/                        # In-depth architectural & feature guides
+├── github-profile/              # Author's personalized GitHub Profile README
+├── resources/                   # Desktop icons & build assets
 ├── src/
-│   ├── main/                    # Electron Main Process
-│   │   ├── index.ts             # App lifecycle, single-instance lock, window management
+│   ├── main/                    # Electron Main Process (Supervisor)
+│   │   ├── index.ts             # App lifecycle, single-instance lock, window frame
 │   │   ├── pty-manager.ts       # node-pty pseudo-terminal session manager & streaming
-│   │   ├── account-manager.ts   # Secure credential storage with Electron safeStorage
+│   │   ├── account-manager.ts   # Hardware-encrypted credential storage (safeStorage)
 │   │   ├── api-client.ts        # CORS-free HTTP engine & cURL executor
 │   │   └── usage-limits.ts      # Token usage and rate-limit scrapers
 │   ├── preload/                 # Secure Context Isolation Bridge
 │   │   ├── index.ts             # Exposes narrow window.api & window.electron
 │   │   └── index.d.ts           # TypeScript IPC contract definitions
 │   └── renderer/                # React 19 Frontend
-│       ├── src/
-│       │   ├── App.tsx          # Workspace shell, responsive grid & keyboard routing
-│       │   ├── components/      # UI components (TerminalPane, HeaderBar, StatusBar, etc.)
-│       │   ├── store/           # Global React Context & AppState
-│       │   └── assets/          # Theme stylesheets and layout definitions
+│       └── src/
+│           ├── App.tsx          # Workspace shell, layout engine & routing
+│           ├── components/      # UI components (TerminalPane, HeaderBar, StatusBar, SpeakDock, etc.)
+│           ├── store/           # Global React Context & AppState (AppContext.tsx)
+│           └── assets/          # Theme stylesheets and layout definitions
 ```
+
+📖 *Read the deep-dive: [Architecture Documentation](docs/ARCHITECTURE.md)*.
 
 ---
 
-## Security & Privacy Model
+## 📚 Documentation Sitemap
 
-- **Zero Remote Telemetry**: Nexus runs entirely locally on your machine. No terminal output, telemetry, keystrokes, or code files are ever sent to any third-party servers.
-- **Hardware-Encrypted Storage**: Sensitive API keys and authentication tokens are encrypted using the operating system's native cryptographic vault via Electron `safeStorage` (Keychain on macOS, DPAPI on Windows, Secret Service on Linux).
-- **Session Partitioning**: Web views run in isolated Electron session partitions, isolating cookies, local storage, and caches between accounts.
+- [System Architecture](docs/ARCHITECTURE.md)
+- [Complete Feature Catalog](docs/FEATURES.md)
+- [Universal Credential & Profile Isolation](docs/UNIVERSAL_CREDENTIAL_ISOLATION.md)
+- [Inter-Terminal Communication & SpeakDock](docs/INTER_TERMINAL_COMMUNICATION.md)
+- [Keyboard Shortcuts Reference](docs/KEYBOARD_SHORTCUTS.md)
+- [Contributing Guidelines](docs/CONTRIBUTING.md)
+- [Personal GitHub Profile Setup](docs/GITHUB_PROFILE_SETUP.md)
+
+---
+
+## 🔒 Security & Privacy Model
+
+- **Zero Remote Telemetry**: Nexus runs 100% locally on your machine. No terminal output, telemetry, keystrokes, or code files are ever sent to any remote servers.
+- **Hardware-Encrypted Storage**: Sensitive API keys and authentication tokens are encrypted using the operating system's native cryptographic vault via Electron `safeStorage`.
+- **Session Partitioning**: Web views run in isolated Electron session partitions (`persist:account-<id>`), isolating cookies, local storage, and caches between accounts.
 - **Process Singleton Resilience**: Automated inspection and cleanup of stale POSIX socket locks prevents mach port traps and multi-process corruption on abrupt shutdowns.
 
 ---
 
-## Contributing
+## 👤 Author & Maintainer
 
-Contributions, issues, and feature suggestions are welcome!
-
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'feat: Add AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+<table border="0">
+  <tr>
+    <td align="center" width="120">
+      <a href="https://github.com/Lokknath">
+        <img src="https://github.com/Lokknath.png" width="100px;" alt="Loknath Surabhi" style="border-radius: 50%;" />
+      </a>
+    </td>
+    <td>
+      <strong>Loknath Surabhi</strong><br />
+      <em>Full-Stack Systems Architect & AI Tooling Engineer</em><br />
+      GitHub: <a href="https://github.com/Lokknath">@Lokknath</a><br />
+      Email: <a href="mailto:slokknath@gmail.com">slokknath@gmail.com</a>
+    </td>
+  </tr>
+</table>
 
 ---
 
-## License
+## 📄 License
 
-Distributed under the MIT License. See `LICENSE` for more information.
+Distributed under the MIT License. See [LICENSE](LICENSE) for more information.
