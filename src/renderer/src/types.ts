@@ -113,41 +113,59 @@ export function getAccountEnv(account?: AIAccount): Record<string, string> {
   if (!account) return {}
   const env: Record<string, string> = { ...(account.envVars || {}) }
 
-  const isPrimary =
-    Boolean(account.isDefault) ||
-    account.id.includes('default') ||
-    account.id.includes('main') ||
-    account.name.toLowerCase().includes('main') ||
-    account.name.toLowerCase().includes('personal')
+  // Every designated AI account receives its dedicated isolated directory.
+  // Global un-isolated home CLI config is reserved strictly for System Shell ('all').
+  const cfgDir =
+    account.cliConfigDir ||
+    (account.providerId === 'claude'
+      ? `~/.claude-${account.id}`
+      : account.providerId === 'chatgpt'
+        ? `~/.codex-${account.id}`
+        : account.providerId === 'gemini' || (account.providerId as string) === 'antigravity'
+          ? `~/.gemini-${account.id}`
+          : `~/.custom-${account.id}`)
 
-  // For secondary/custom profiles, point to isolated directory.
-  // For primary/default profiles, leave unset so it uses user's authenticated global home CLI config.
-  if (account.providerId === 'claude') {
-    if (account.cliConfigDir && !isPrimary) {
-      env.CLAUDE_CONFIG_DIR = account.cliConfigDir
-    } else if (!isPrimary) {
-      env.CLAUDE_CONFIG_DIR = `~/.claude-${account.id}`
+  // 1. Claude / Anthropic Isolation
+  if (account.providerId === 'claude' && cfgDir) {
+    env.CLAUDE_CONFIG_DIR = cfgDir
+    if (account.envVars?.ANTHROPIC_API_KEY) {
+      env.ANTHROPIC_API_KEY = account.envVars.ANTHROPIC_API_KEY
     }
-  } else if (account.providerId === 'chatgpt') {
-    if (account.cliConfigDir && !isPrimary) {
-      env.CODEX_HOME = account.cliConfigDir
-    } else if (!isPrimary) {
-      env.CODEX_HOME = `~/.codex-${account.id}`
+  }
+
+  // 2. ChatGPT / OpenAI Codex Isolation
+  if (account.providerId === 'chatgpt' && cfgDir) {
+    env.CODEX_HOME = cfgDir
+    if (account.envVars?.OPENAI_API_KEY) {
+      env.OPENAI_API_KEY = account.envVars.OPENAI_API_KEY
     }
-  } else if (account.providerId === 'gemini' || (account.providerId as string) === 'antigravity') {
-    if (account.cliConfigDir && !isPrimary) {
-      const cfg = account.cliConfigDir
-      env.ANTIGRAVITY_APP_DATA_DIR = cfg.endsWith('/antigravity-cli')
-        ? cfg
-        : `${cfg}/antigravity-cli`
-      env.GEMINI_DIR = cfg
-      env.GEMINI_CLI_DIR = cfg
-    } else if (!isPrimary) {
-      const profileDir = `~/.gemini-${account.id}`
-      env.ANTIGRAVITY_APP_DATA_DIR = `${profileDir}/antigravity-cli`
-      env.GEMINI_DIR = profileDir
-      env.GEMINI_CLI_DIR = profileDir
+  }
+
+  // 3. Google Gemini / Antigravity Isolation
+  if (account.providerId === 'gemini' || (account.providerId as string) === 'antigravity') {
+    if (cfgDir) {
+      const appData = cfgDir.endsWith('/antigravity-cli') ? cfgDir : `${cfgDir}/antigravity-cli`
+      env.ANTIGRAVITY_APP_DATA_DIR = appData
+      env.JETSKI_APP_DATA_DIR = appData
+      env.GEMINI_DIR = cfgDir
+      env.GEMINI_CLI_DIR = cfgDir
     }
+    if (account.googleEmail) {
+      env.AGY_ACCOUNT = account.googleEmail
+      env.GOOGLE_ACCOUNT = account.googleEmail
+      env.CLOUDSDK_CORE_ACCOUNT = account.googleEmail
+      env.GEMINI_ACCOUNT = account.googleEmail
+    }
+    if (account.envVars?.GEMINI_API_KEY) {
+      env.GEMINI_API_KEY = account.envVars.GEMINI_API_KEY
+      env.GOOGLE_API_KEY = account.envVars.GEMINI_API_KEY
+      env.AUTH_MODE_GEMINI_API_KEY = '1'
+    }
+  }
+
+  // 4. Custom / Generic Isolation
+  if (account.providerId === 'custom' && cfgDir) {
+    env.AI_CONFIG_DIR = cfgDir
   }
 
   return env

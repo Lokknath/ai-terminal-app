@@ -120,10 +120,50 @@ export default function WebChatPane({
     const webview = webviewRef.current
     if (!webview) return
 
+    const detectGoogleAuthEmail = async (): Promise<void> => {
+      if (!webview) return
+      try {
+        const detected = await webview.executeJavaScript(`
+          (() => {
+            try {
+              const links = Array.from(document.querySelectorAll('a[aria-label*="@"], button[aria-label*="@"], div[aria-label*="@"]'));
+              for (const el of links) {
+                const label = el.getAttribute('aria-label') || '';
+                const m = label.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})/);
+                if (m && !m[1].endsWith('google.com')) return m[1];
+              }
+              const idEls = Array.from(document.querySelectorAll('[data-email], [data-identifier], [title*="@"]'));
+              for (const el of idEls) {
+                const val = el.getAttribute('data-email') || el.getAttribute('data-identifier') || el.getAttribute('title') || '';
+                const m = val.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})/);
+                if (m && !m[1].endsWith('google.com')) return m[1];
+              }
+              return null;
+            } catch {
+              return null;
+            }
+          })()
+        `)
+        if (detected && typeof detected === 'string') {
+          const acc = state.aiAccounts.find(
+            (a) => a.partition === currentPartition || (a.providerId === 'gemini' && !currentPartition)
+          )
+          if (acc && acc.googleEmail !== detected) {
+            void window.api.saveGoogleSSOCredentials(acc.id, detected)
+          }
+        }
+      } catch {
+        /* ignore inspection error */
+      }
+    }
+
     const handleNavigate = (e: any): void => {
       if (e.url) {
         setCurrentUrl(e.url)
         setAddressInput(e.url)
+        if (e.url.includes('google.com') || e.url.includes('gemini.google.com')) {
+          void detectGoogleAuthEmail()
+        }
       }
     }
 
@@ -131,7 +171,10 @@ export default function WebChatPane({
       setLoadError(null)
       setIsLoading(true)
     }
-    const handleStopLoading = (): void => setIsLoading(false)
+    const handleStopLoading = (): void => {
+      setIsLoading(false)
+      void detectGoogleAuthEmail()
+    }
     const handleLoadFailure = (event: {
       errorCode: number
       errorDescription: string
@@ -143,6 +186,12 @@ export default function WebChatPane({
       }
     }
 
+    const handleRenderProcessGone = (event: { details?: { reason?: string; exitCode?: number } }): void => {
+      setIsLoading(false)
+      const reason = event.details?.reason || 'crashed'
+      setLoadError(`The web page process unexpectedly terminated (${reason}). Click Reload to restore the session.`)
+    }
+
     const handleFocus = (): void => {
       if (id) dispatch({ type: 'SET_ACTIVE_SESSION', id })
     }
@@ -152,6 +201,7 @@ export default function WebChatPane({
     webview.addEventListener('did-start-loading', handleStartLoading)
     webview.addEventListener('did-stop-loading', handleStopLoading)
     webview.addEventListener('did-fail-load', handleLoadFailure)
+    webview.addEventListener('render-process-gone', handleRenderProcessGone)
     webview.addEventListener('focus', handleFocus)
 
     return () => {
@@ -160,6 +210,7 @@ export default function WebChatPane({
       webview.removeEventListener('did-start-loading', handleStartLoading)
       webview.removeEventListener('did-stop-loading', handleStopLoading)
       webview.removeEventListener('did-fail-load', handleLoadFailure)
+      webview.removeEventListener('render-process-gone', handleRenderProcessGone)
       webview.removeEventListener('focus', handleFocus)
     }
   }, [id, dispatch])

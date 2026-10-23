@@ -16,7 +16,9 @@ import {
   Settings2,
   Square,
   TerminalSquare,
-  Trash2
+  Trash2,
+  Edit2,
+  FolderOpen
 } from 'lucide-react'
 import { useApp } from '../store/AppContext'
 import { getProviderCliCommand, type AIAccount } from '../types'
@@ -27,7 +29,10 @@ interface AgentSidebarProps {
   onLaunchCLI: (command: string, name: string) => void
   onOpenAccount: (account: AIAccount) => void
   onCloseSession?: (id: string) => void
-  onOpenTerminalWithAccount?: (account: AIAccount) => void
+  onRenameSession?: (id: string, name: string) => void
+  onOpenTerminalWithAccount?: (account: AIAccount, cwd?: string) => void
+  onOpenFolderPickerForAccount?: (account: AIAccount) => void
+  onNewTerminal?: () => void
 }
 
 const cliTools = [
@@ -42,7 +47,10 @@ export default function AgentSidebar({
   onLaunchCLI,
   onOpenAccount,
   onCloseSession,
-  onOpenTerminalWithAccount
+  onRenameSession,
+  onOpenTerminalWithAccount,
+  onOpenFolderPickerForAccount,
+  onNewTerminal
 }: AgentSidebarProps): JSX.Element {
   const { state, dispatch } = useApp()
   const [tab, setTab] = useState<SidebarTab>('sessions')
@@ -51,6 +59,8 @@ export default function AgentSidebar({
   const [authStatus, setAuthStatus] = useState<Record<string, 'verified' | 'profile' | 'none'>>({})
   const [broadcastCmd, setBroadcastCmd] = useState('')
   const [broadcastFeedback, setBroadcastFeedback] = useState<string | null>(null)
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null)
+  const [editingSessionName, setEditingSessionName] = useState<string>('')
   const [selectedTerminalIds, setSelectedTerminalIds] = useState<string[] | null>(null)
   const [focusedTerminalIndex, setFocusedTerminalIndex] = useState<number>(0)
   const [swarmMode, setSwarmMode] = useState<'parallel' | 'sequential'>('parallel')
@@ -152,12 +162,11 @@ export default function AgentSidebar({
           .replace(/\$\{INDEX\}/g, String(i + 1))
           .replace(/\$\{ID\}/g, t.id)
           .replace(/\$\{NAME\}/g, t.name)
-        window.electron.ipcRenderer.send(
-          `pty-in-${t.id}`,
+        const toSend =
           interpolated.endsWith('\r') || interpolated === '\x03'
             ? interpolated
             : `${interpolated}\r`
-        )
+        window.electron.ipcRenderer.send('pty-write', t.id, toSend)
       })
       setBroadcastFeedback(
         `Dispatched to ${targets.length} terminal${targets.length > 1 ? 's' : ''} (Parallel)`
@@ -166,16 +175,17 @@ export default function AgentSidebar({
       // Sequential execution: dispatch with 250ms stagger
       targets.forEach((t, i) => {
         setTimeout(() => {
+          const isStillActive = state.terminals.some((term) => term.id === t.id)
+          if (!isStillActive) return
           const interpolated = rawText
             .replace(/\$\{INDEX\}/g, String(i + 1))
             .replace(/\$\{ID\}/g, t.id)
             .replace(/\$\{NAME\}/g, t.name)
-          window.electron.ipcRenderer.send(
-            `pty-in-${t.id}`,
+          const toSend =
             interpolated.endsWith('\r') || interpolated === '\x03'
               ? interpolated
               : `${interpolated}\r`
-          )
+          window.electron.ipcRenderer.send('pty-write', t.id, toSend)
         }, i * 250)
       })
       setBroadcastFeedback(`Running sequentially across ${targets.length} terminals`)
@@ -185,10 +195,65 @@ export default function AgentSidebar({
 
   const handleSendToSingleTerminal = (terminalId: string, cmd: string): void => {
     if (!cmd.trim()) return
-    window.electron.ipcRenderer.send(`pty-in-${terminalId}`, cmd.endsWith('\r') ? cmd : `${cmd}\r`)
+    const toSend = cmd.endsWith('\r') ? cmd : `${cmd}\r`
+    window.electron.ipcRenderer.send('pty-write', terminalId, toSend)
     setPerTerminalInputs((prev) => ({ ...prev, [terminalId]: '' }))
     setBroadcastFeedback(`Sent to ${terminalId}`)
     setTimeout(() => setBroadcastFeedback(null), 2000)
+  }
+
+  const handleApproveTerminal = (terminalId: string): void => {
+    window.electron.ipcRenderer.send('pty-write', terminalId, 'y\r')
+    dispatch({
+      type: 'UPDATE_TERMINAL_AGENT_STATE',
+      id: terminalId,
+      agentState: {
+        status: 'working',
+        promptQuestion: undefined,
+        reason: 'Approved by user (swarm card)',
+        lastActiveAt: Date.now()
+      }
+    })
+    setBroadcastFeedback(`Approved ${terminalId} (y)`)
+    setTimeout(() => setBroadcastFeedback(null), 2000)
+  }
+
+  const handleDenyTerminal = (terminalId: string): void => {
+    window.electron.ipcRenderer.send('pty-write', terminalId, 'n\r')
+    dispatch({
+      type: 'UPDATE_TERMINAL_AGENT_STATE',
+      id: terminalId,
+      agentState: {
+        status: 'idle',
+        promptQuestion: undefined,
+        reason: 'Denied by user (swarm card)',
+        lastActiveAt: Date.now()
+      }
+    })
+    setBroadcastFeedback(`Denied ${terminalId} (n)`)
+    setTimeout(() => setBroadcastFeedback(null), 2000)
+  }
+
+  const handleApproveAllWaiting = (): void => {
+    const waitingTerminals = state.terminals.filter(
+      (t) => effectiveSelectedIds.includes(t.id) && t.agentState?.status === 'waiting'
+    )
+    if (waitingTerminals.length === 0) return
+    waitingTerminals.forEach((t) => {
+      window.electron.ipcRenderer.send('pty-write', t.id, 'y\r')
+      dispatch({
+        type: 'UPDATE_TERMINAL_AGENT_STATE',
+        id: t.id,
+        agentState: {
+          status: 'working',
+          promptQuestion: undefined,
+          reason: 'Bulk approved by user',
+          lastActiveAt: Date.now()
+        }
+      })
+    })
+    setBroadcastFeedback(`Approved all ${waitingTerminals.length} waiting agents`)
+    setTimeout(() => setBroadcastFeedback(null), 2500)
   }
 
   const handleReorderTerminal = (id: string, direction: 'up' | 'down'): void => {
@@ -219,15 +284,35 @@ export default function AgentSidebar({
       <div className="sidebar-top">
         <div className="sidebar-title-row">
           <span>Workspace</span>
-          <button
-            type="button"
-            className="sidebar-icon-button"
-            aria-label="Open command menu"
-            title="Command menu (⌘K)"
-            onClick={() => dispatch({ type: 'SET_SHOW_PALETTE', show: true })}
-          >
-            <Plus size={16} />
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <button
+              type="button"
+              className="sidebar-icon-button"
+              aria-label="New terminal"
+              title="New terminal"
+              onClick={onNewTerminal}
+            >
+              <Plus size={15} />
+            </button>
+            <button
+              type="button"
+              className="sidebar-icon-button"
+              aria-label="Search and commands (⌘K)"
+              title="Search and commands (⌘K)"
+              onClick={() => dispatch({ type: 'SET_SHOW_PALETTE', show: true })}
+            >
+              <Command size={13} />
+            </button>
+            <button
+              type="button"
+              className="sidebar-icon-button"
+              aria-label="Collapse sidebar"
+              title="Collapse sidebar"
+              onClick={() => dispatch({ type: 'TOGGLE_SIDEBAR' })}
+            >
+              <PanelLeftClose size={14} />
+            </button>
+          </div>
         </div>
         <nav className="sidebar-tabs" aria-label="Sidebar sections">
           {(
@@ -401,11 +486,11 @@ export default function AgentSidebar({
                   style={{
                     backgroundColor: 'rgba(255, 255, 255, 0.04)',
                     border: '1px solid rgba(255, 255, 255, 0.08)',
-                    borderRadius: '7px',
+                    borderRadius: '8px',
                     padding: '8px 10px',
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '6px'
+                    gap: '8px'
                   }}
                 >
                   <div
@@ -416,7 +501,7 @@ export default function AgentSidebar({
                     }}
                   >
                     <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 600 }}>
-                      Targets: {effectiveSelectedIds.length}/{state.terminals.length}
+                      Targets: <strong style={{ color: '#fff' }}>{effectiveSelectedIds.length}</strong>/{state.terminals.length}
                     </span>
                     <div style={{ display: 'flex', gap: '4px' }}>
                       <button
@@ -424,10 +509,10 @@ export default function AgentSidebar({
                         onClick={() => setSelectedTerminalIds(state.terminals.map((t) => t.id))}
                         style={{
                           fontSize: '10.5px',
-                          padding: '1px 5px',
-                          borderRadius: '3px',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
                           background: 'rgba(255,255,255,0.06)',
-                          border: '1px solid rgba(255,255,255,0.12)',
+                          border: '1px solid rgba(255,255,255,0.14)',
                           color: '#cbd5e1',
                           cursor: 'pointer'
                         }}
@@ -439,10 +524,10 @@ export default function AgentSidebar({
                         onClick={() => setSelectedTerminalIds([])}
                         style={{
                           fontSize: '10.5px',
-                          padding: '1px 5px',
-                          borderRadius: '3px',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
                           background: 'rgba(255,255,255,0.06)',
-                          border: '1px solid rgba(255,255,255,0.12)',
+                          border: '1px solid rgba(255,255,255,0.14)',
                           color: '#cbd5e1',
                           cursor: 'pointer'
                         }}
@@ -459,10 +544,10 @@ export default function AgentSidebar({
                         }}
                         style={{
                           fontSize: '10.5px',
-                          padding: '1px 5px',
-                          borderRadius: '3px',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
                           background: 'rgba(255,255,255,0.06)',
-                          border: '1px solid rgba(255,255,255,0.12)',
+                          border: '1px solid rgba(255,255,255,0.14)',
                           color: '#cbd5e1',
                           cursor: 'pointer'
                         }}
@@ -487,17 +572,17 @@ export default function AgentSidebar({
                           type="button"
                           onClick={() => setSwarmStatusFilter(st)}
                           style={{
-                            fontSize: '10px',
-                            padding: '1px 5px',
-                            borderRadius: '3px',
-                            background: swarmStatusFilter === st ? '#4f46e5' : 'transparent',
+                            fontSize: '10.5px',
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            background: swarmStatusFilter === st ? '#4f46e5' : 'rgba(255,255,255,0.05)',
                             color: swarmStatusFilter === st ? '#fff' : '#94a3b8',
-                            border: 'none',
+                            border: swarmStatusFilter === st ? '1px solid #6366f1' : '1px solid rgba(255,255,255,0.08)',
                             cursor: 'pointer',
                             textTransform: 'capitalize'
                           }}
                         >
-                          {st}
+                          {st === 'waiting' ? 'Blocked' : st}
                         </button>
                       ))}
                     </div>
@@ -510,7 +595,7 @@ export default function AgentSidebar({
                       title="Toggle between Parallel (instant) and Sequential (staggered) execution"
                       style={{
                         fontSize: '10.5px',
-                        padding: '2px 6px',
+                        padding: '2px 7px',
                         borderRadius: '4px',
                         backgroundColor:
                           swarmMode === 'parallel'
@@ -529,6 +614,39 @@ export default function AgentSidebar({
                       {swarmMode === 'parallel' ? '⚡ Parallel' : '⏳ Sequential'}
                     </button>
                   </div>
+
+                  {state.terminals.some(
+                    (t) => effectiveSelectedIds.includes(t.id) && t.agentState?.status === 'waiting'
+                  ) && (
+                    <button
+                      type="button"
+                      onClick={handleApproveAllWaiting}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px',
+                        padding: '5px 10px',
+                        backgroundColor: '#10b981',
+                        border: 'none',
+                        borderRadius: '5px',
+                        color: '#fff',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)'
+                      }}
+                    >
+                      <CheckSquare size={13} />
+                      Approve All Waiting (
+                      {
+                        state.terminals.filter(
+                          (t) => effectiveSelectedIds.includes(t.id) && t.agentState?.status === 'waiting'
+                        ).length
+                      }
+                      )
+                    </button>
+                  )}
                 </div>
 
                 {/* Keyboard Navigation Tip */}
@@ -642,18 +760,88 @@ export default function AgentSidebar({
                             ) : (
                               <Square size={14} color="#64748b" />
                             )}
-                            <strong
-                              style={{
-                                fontSize: '12.5px',
-                                fontWeight: 600,
-                                color: isSelected ? '#fff' : '#94a3b8',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap'
-                              }}
-                            >
-                              {session.name}
-                            </strong>
+                            {editingSessionId === session.id ? (
+                              <input
+                                type="text"
+                                value={editingSessionName}
+                                autoFocus
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) => setEditingSessionName(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.stopPropagation()
+                                    if (editingSessionName.trim()) {
+                                      onRenameSession?.(session.id, editingSessionName.trim())
+                                    }
+                                    setEditingSessionId(null)
+                                  } else if (e.key === 'Escape') {
+                                    e.stopPropagation()
+                                    setEditingSessionId(null)
+                                  }
+                                }}
+                                onBlur={() => {
+                                  if (editingSessionName.trim()) {
+                                    onRenameSession?.(session.id, editingSessionName.trim())
+                                  }
+                                  setEditingSessionId(null)
+                                }}
+                                style={{
+                                  fontSize: '12px',
+                                  fontWeight: 600,
+                                  background: 'rgba(255,255,255,0.1)',
+                                  border: '1px solid #6366f1',
+                                  borderRadius: '3px',
+                                  color: '#fff',
+                                  padding: '1px 4px',
+                                  maxWidth: '120px',
+                                  outline: 'none'
+                                }}
+                              />
+                            ) : (
+                              <strong
+                                onDoubleClick={(e) => {
+                                  e.stopPropagation()
+                                  setEditingSessionId(session.id)
+                                  setEditingSessionName(session.name)
+                                }}
+                                title={`${session.name} (Double-click to rename)`}
+                                style={{
+                                  fontSize: '12.5px',
+                                  fontWeight: 600,
+                                  color: isSelected ? '#fff' : '#94a3b8',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                {session.name}
+                              </strong>
+                            )}
+                            {onRenameSession && editingSessionId !== session.id && (
+                              <button
+                                type="button"
+                                title="Rename session"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setEditingSessionId(session.id)
+                                  setEditingSessionName(session.name)
+                                }}
+                                style={{
+                                  background: 'transparent',
+                                  border: 'none',
+                                  color: '#64748b',
+                                  cursor: 'pointer',
+                                  padding: '1px',
+                                  display: 'flex',
+                                  alignItems: 'center'
+                                }}
+                                onMouseOver={(e) => (e.currentTarget.style.color = '#fff')}
+                                onMouseOut={(e) => (e.currentTarget.style.color = '#64748b')}
+                              >
+                                <Edit2 size={11} />
+                              </button>
+                            )}
                             {(() => {
                               const acc = state.aiAccounts.find((a) => a.id === session.accountId)
                               if (!acc) return null
@@ -788,20 +976,76 @@ export default function AgentSidebar({
                         {question && isBlocked && (
                           <div
                             style={{
-                              fontSize: '11.5px',
-                              fontFamily: 'ui-monospace, monospace',
-                              backgroundColor: 'rgba(0, 0, 0, 0.45)',
-                              padding: '6px 8px',
-                              borderRadius: '4px',
-                              borderLeft: '3px solid #f59e0b',
-                              color: '#e5e7eb',
-                              whiteSpace: 'pre-wrap',
-                              wordBreak: 'break-word',
-                              maxHeight: '60px',
-                              overflowY: 'auto'
+                              backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                              border: '1px solid rgba(245, 158, 11, 0.4)',
+                              borderRadius: '6px',
+                              padding: '7px 9px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '6px'
                             }}
                           >
-                            {question}
+                            <div
+                              style={{
+                                fontSize: '11px',
+                                fontFamily: 'ui-monospace, monospace',
+                                color: '#fef3c7',
+                                whiteSpace: 'pre-wrap',
+                                wordBreak: 'break-word',
+                                maxHeight: '60px',
+                                overflowY: 'auto'
+                              }}
+                            >
+                              {question}
+                            </div>
+                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleApproveTerminal(session.id)
+                                }}
+                                title="Send 'y' to approve prompt"
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  padding: '3px 8px',
+                                  borderRadius: '4px',
+                                  backgroundColor: '#10b981',
+                                  border: 'none',
+                                  color: '#fff',
+                                  fontSize: '11px',
+                                  fontWeight: 600,
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                ✓ Allow (y)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleDenyTerminal(session.id)
+                                }}
+                                title="Send 'n' to reject prompt"
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  padding: '3px 8px',
+                                  borderRadius: '4px',
+                                  backgroundColor: 'rgba(239, 68, 68, 0.25)',
+                                  border: '1px solid rgba(239, 68, 68, 0.5)',
+                                  color: '#f87171',
+                                  fontSize: '11px',
+                                  fontWeight: 600,
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                ✗ Deny (n)
+                              </button>
+                            </div>
                           </div>
                         )}
 
@@ -919,6 +1163,78 @@ export default function AgentSidebar({
                     justifyContent: 'flex-end'
                   }}
                 >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleSwarmDispatch('y\r')
+                      state.terminals
+                        .filter(
+                          (t) =>
+                            effectiveSelectedIds.includes(t.id) && t.agentState?.status === 'waiting'
+                        )
+                        .forEach((t) => {
+                          dispatch({
+                            type: 'UPDATE_TERMINAL_AGENT_STATE',
+                            id: t.id,
+                            agentState: {
+                              status: 'working',
+                              promptQuestion: undefined,
+                              reason: 'Bulk approved (quick y)',
+                              lastActiveAt: Date.now()
+                            }
+                          })
+                        })
+                    }}
+                    title="Send 'y' (Allow) to selected terminals"
+                    style={{
+                      fontSize: '10.5px',
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                      backgroundColor: 'rgba(16, 185, 129, 0.2)',
+                      border: '1px solid rgba(16, 185, 129, 0.45)',
+                      color: '#34d399',
+                      cursor: 'pointer',
+                      fontWeight: 600
+                    }}
+                  >
+                    ✓ y
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleSwarmDispatch('n\r')
+                      state.terminals
+                        .filter(
+                          (t) =>
+                            effectiveSelectedIds.includes(t.id) && t.agentState?.status === 'waiting'
+                        )
+                        .forEach((t) => {
+                          dispatch({
+                            type: 'UPDATE_TERMINAL_AGENT_STATE',
+                            id: t.id,
+                            agentState: {
+                              status: 'idle',
+                              promptQuestion: undefined,
+                              reason: 'Bulk denied (quick n)',
+                              lastActiveAt: Date.now()
+                            }
+                          })
+                        })
+                    }}
+                    title="Send 'n' (Deny) to selected terminals"
+                    style={{
+                      fontSize: '10.5px',
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                      backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                      border: '1px solid rgba(239, 68, 68, 0.4)',
+                      color: '#f87171',
+                      cursor: 'pointer',
+                      fontWeight: 600
+                    }}
+                  >
+                    ✗ n
+                  </button>
                   <button
                     type="button"
                     onClick={() => handleSwarmDispatch('clear\r')}
@@ -1137,10 +1453,21 @@ export default function AgentSidebar({
                         <button
                           type="button"
                           aria-label={`Open ${account.name} terminal`}
-                          title="Open CLI terminal"
+                          title="Open CLI terminal in Home (~)"
                           onClick={() => onOpenTerminalWithAccount(account)}
                         >
                           <TerminalSquare size={15} />
+                        </button>
+                      )}
+                      {command && onOpenFolderPickerForAccount && (
+                        <button
+                          type="button"
+                          aria-label={`Open ${account.name} terminal in folder`}
+                          title="Open in specific workspace folder..."
+                          onClick={() => onOpenFolderPickerForAccount(account)}
+                          style={{ color: '#e5c07b' }}
+                        >
+                          <FolderOpen size={15} />
                         </button>
                       )}
                       <button

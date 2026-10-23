@@ -1,13 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity,
   AlertCircle,
   Bot,
   Clock3,
-  Coffee,
   ChevronDown,
   Columns2,
   Columns3,
+  FolderOpen,
+  Globe,
   Grid2X2,
   LayoutGrid,
   Loader2,
@@ -27,6 +28,8 @@ import {
   type LucideIcon
 } from 'lucide-react'
 import { useApp, type AppMode } from '../store/AppContext'
+import { AIAccount } from '../types'
+import { SubscriptionBadge } from './SubscriptionBadge'
 
 export type LayoutPresetType =
   | 'solo'
@@ -45,9 +48,14 @@ export type LayoutPresetType =
   | 'tidy'
 
 interface HeaderBarProps {
+  visiblePaneCount?: number
   onApplyLayout: (type: LayoutPresetType) => void
   onHoverLayout?: (type: LayoutPresetType | null) => void
   onNewTerminal: () => void
+  onOpenTerminalWithAccount?: (account: AIAccount, cwd?: string) => void
+  onOpenFolderPickerForAccount?: (account: AIAccount) => void
+  onOpenFolderPicker?: () => void
+  onOpenWebChat?: (url: string, title: string) => void
   onToggleFocusSplit: () => void
   onOpenNewModal: () => void
 }
@@ -109,17 +117,25 @@ const layouts: { type: LayoutPresetType; label: string; detail: string; icon: Lu
 ]
 
 export default function HeaderBar({
+  visiblePaneCount,
   onApplyLayout,
   onHoverLayout,
   onNewTerminal,
+  onOpenTerminalWithAccount,
+  onOpenFolderPickerForAccount,
+  onOpenFolderPicker,
+  onOpenWebChat,
   onToggleFocusSplit,
   onOpenNewModal
 }: HeaderBarProps): JSX.Element {
   const { state, dispatch } = useApp()
   const [layoutOpen, setLayoutOpen] = useState(false)
+  const [newMenuOpen, setNewMenuOpen] = useState(false)
   const [clock, setClock] = useState(0)
   const menuRef = useRef<HTMLDivElement>(null)
   const layoutButtonRef = useRef<HTMLButtonElement>(null)
+  const newMenuRef = useRef<HTMLDivElement>(null)
+  const newButtonRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     const initial = setTimeout(() => setClock(Date.now()), 0)
@@ -149,14 +165,35 @@ export default function HeaderBar({
     }
   }, [layoutOpen])
 
+  useEffect(() => {
+    if (!newMenuOpen) return
+    const closeOutside = (event: MouseEvent): void => {
+      if (!newMenuRef.current?.contains(event.target as Node)) setNewMenuOpen(false)
+    }
+    const closeOnEscape = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        setNewMenuOpen(false)
+        newButtonRef.current?.focus()
+      }
+    }
+    document.addEventListener('mousedown', closeOutside)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('mousedown', closeOutside)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [newMenuOpen])
+
   const showGrid = (): void => {
     dispatch({ type: 'SET_VIEW_MODE', viewMode: 'grid' })
-    dispatch({ type: 'SET_ACTIVE_SESSION', id: null })
   }
 
   const showFull = (): void => {
     const id = state.activeSessionId || state.terminals[0]?.id
-    if (id) dispatch({ type: 'SET_ACTIVE_SESSION', id })
+    if (id) {
+      dispatch({ type: 'SET_ACTIVE_SESSION', id })
+      dispatch({ type: 'SET_VIEW_MODE', viewMode: 'full' })
+    }
   }
 
   const workingCount = state.terminals.filter((t) => t.agentState?.status === 'working').length
@@ -175,15 +212,40 @@ export default function HeaderBar({
     }
   }
 
-  const handleToggleKeepAwake = async (): Promise<void> => {
-    const next = !state.keepAwake
-    try {
-      const active = await window.api.setKeepAwake(next)
-      dispatch({ type: 'SET_KEEP_AWAKE', enabled: active })
-    } catch {
-      dispatch({ type: 'SET_KEEP_AWAKE', enabled: next })
+  // Dynamic recommendations based on currently visible pane count
+  const recommendedLayouts = useMemo(() => {
+    const count = visiblePaneCount ?? 2
+    if (count <= 1) {
+      return [
+        { type: 'solo' as LayoutPresetType, label: 'Solo (Full Width)', detail: 'Full-width single pane', icon: Maximize2 }
+      ]
     }
-  }
+    if (count === 2) {
+      return [
+        { type: 'pair' as LayoutPresetType, label: 'Side by Side (Left / Right)', detail: 'Two equal 50/50 columns', icon: Columns2 },
+        { type: 'stack' as LayoutPresetType, label: 'Stacked (Up / Down)', detail: 'Two equal 50/50 rows', icon: Rows3 },
+        { type: 'solo' as LayoutPresetType, label: 'Solo Focus', detail: 'Full-width active pane', icon: Maximize2 }
+      ]
+    }
+    if (count === 3) {
+      return [
+        { type: 'swarm' as LayoutPresetType, label: 'Three Equal Columns', detail: 'Three equal columns side-by-side', icon: Columns3 },
+        { type: 'sidebar' as LayoutPresetType, label: 'Master Left + Two Stacked', detail: 'Main pane + 2 side tools', icon: PanelsTopLeft },
+        { type: 'stack' as LayoutPresetType, label: 'Three Stacked Rows', detail: 'Three equal horizontal rows', icon: Rows3 }
+      ]
+    }
+    if (count === 4) {
+      return [
+        { type: 'workbench' as LayoutPresetType, label: '2x2 Grid (Quadrants)', detail: 'Four equal quadrant panes', icon: Grid2X2 },
+        { type: 'tidy' as LayoutPresetType, label: 'Four Columns', detail: 'Four balanced columns', icon: WandSparkles }
+      ]
+    }
+    return [
+      { type: 'tidy' as LayoutPresetType, label: 'Auto Balanced', detail: `Optimized layout for ${count} panes`, icon: WandSparkles },
+      { type: 'swarm' as LayoutPresetType, label: 'Columns', detail: 'Equal columns', icon: Columns3 },
+      { type: 'workbench' as LayoutPresetType, label: 'Grid', detail: 'Balanced grid', icon: Grid2X2 }
+    ]
+  }, [visiblePaneCount])
 
   return (
     <header className="app-header">
@@ -236,7 +298,7 @@ export default function HeaderBar({
           title="Search commands, sessions, tools (⌘K)"
         >
           <Search size={13} className="search-icon" />
-          <span className="search-text">Search commands, sessions, tools...</span>
+          <span className="search-text">Search...</span>
           <kbd className="search-kbd">⌘K</kbd>
         </button>
 
@@ -253,14 +315,139 @@ export default function HeaderBar({
             >
               <Icon size={14} />
               <span>{label}</span>
-              <span className="mode-shortcut-hint">{shortcut}</span>
             </button>
           ))}
         </nav>
       </div>
 
       <div className="header-actions">
-        {/* Herdr Swarm Status Indicator */}
+        {state.mode === 'code' && (
+          <>
+            <div className="layout-control" ref={menuRef} style={{ position: 'relative' }}>
+              <button
+                type="button"
+                ref={layoutButtonRef}
+                className="header-control layout-trigger"
+                aria-expanded={layoutOpen}
+                aria-controls="layout-options"
+                onClick={() => setLayoutOpen((open) => !open)}
+                title="Arrange terminal panes and layout"
+              >
+                <LayoutGrid size={15} />
+                <span>Layout</span>
+                <ChevronDown size={13} />
+              </button>
+              {layoutOpen && (
+                <div
+                  className="layout-menu"
+                  id="layout-options"
+                  role="group"
+                  aria-label="Choose pane layout"
+                  style={{
+                    minWidth: '270px',
+                    position: 'absolute',
+                    right: 0,
+                    top: 'calc(100% + 6px)',
+                    maxHeight: 'calc(100vh - 70px)',
+                    overflowY: 'auto',
+                    zIndex: 300
+                  }}
+                >
+                  <div className="menu-heading" style={{ color: '#8baeff' }}>
+                    Recommended ({visiblePaneCount ?? 2} Panes)
+                  </div>
+                  {recommendedLayouts.map(({ type, label, detail, icon: Icon }) => (
+                    <button
+                      type="button"
+                      key={`rec-${type}`}
+                      className="layout-option"
+                      style={{
+                        backgroundColor: 'rgba(117, 157, 255, 0.08)',
+                        border: '1px solid rgba(117, 157, 255, 0.22)',
+                        marginBottom: '4px'
+                      }}
+                      onMouseEnter={() => onHoverLayout?.(type)}
+                      onMouseLeave={() => onHoverLayout?.(null)}
+                      onFocus={() => onHoverLayout?.(type)}
+                      onBlur={() => onHoverLayout?.(null)}
+                      onClick={() => {
+                        onApplyLayout(type)
+                        onHoverLayout?.(null)
+                        setLayoutOpen(false)
+                        layoutButtonRef.current?.focus()
+                      }}
+                    >
+                      <Icon size={16} color="#8baeff" />
+                      <span>
+                        <strong style={{ color: '#8baeff' }}>{label}</strong>
+                        <small>{detail}</small>
+                      </span>
+                    </button>
+                  ))}
+
+                  <div className="menu-heading" style={{ marginTop: '8px' }}>
+                    All Layout Presets
+                  </div>
+                  {layouts.map(({ type, label, detail, icon: Icon }) => (
+                    <button
+                      type="button"
+                      key={type}
+                      className="layout-option"
+                      onMouseEnter={() => onHoverLayout?.(type)}
+                      onMouseLeave={() => onHoverLayout?.(null)}
+                      onFocus={() => onHoverLayout?.(type)}
+                      onBlur={() => onHoverLayout?.(null)}
+                      onClick={() => {
+                        onApplyLayout(type)
+                        onHoverLayout?.(null)
+                        setLayoutOpen(false)
+                        layoutButtonRef.current?.focus()
+                      }}
+                    >
+                      <Icon size={16} />
+                      <span>
+                        <strong>{label}</strong>
+                        <small>{detail}</small>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="view-switch" aria-label="Workspace view">
+              <button
+                type="button"
+                className={state.viewMode === 'grid' ? 'is-active' : ''}
+                onClick={showGrid}
+                title="Grid View (⌘⇧G)"
+                aria-label="Grid view"
+              >
+                <Grid2X2 size={13} />
+              </button>
+              <button
+                type="button"
+                className={state.viewMode === 'split' ? 'is-active' : ''}
+                onClick={onToggleFocusSplit}
+                title="Focus View (Toggle 50/50 Focus)"
+                aria-label="Focus view"
+              >
+                <Sparkles size={13} />
+              </button>
+              <button
+                type="button"
+                className={state.viewMode === 'full' ? 'is-active' : ''}
+                onClick={showFull}
+                title="Full View (Single Pane)"
+                aria-label="Full session view"
+              >
+                <Maximize2 size={13} />
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Swarm Status Indicator */}
         {waitingCount > 0 ? (
           <button
             type="button"
@@ -301,138 +488,283 @@ export default function HeaderBar({
           </div>
         ) : null}
 
-        {/* Herdr Run-when-Away Keep-Awake Toggle */}
-        <button
-          type="button"
-          className={`icon-button keep-awake-btn ${state.keepAwake ? 'is-active' : ''}`}
-          onClick={handleToggleKeepAwake}
-          title={
-            state.keepAwake
-              ? 'Keep-Awake Active: System sleep and timer suspension prevented while agents run'
-              : 'Enable Keep-Awake: Prevent OS sleep during long-running agent workflows'
-          }
-          aria-label="Toggle keep awake"
-          style={{
-            position: 'relative',
-            color: state.keepAwake ? '#f59e0b' : 'inherit',
-            borderColor: state.keepAwake ? 'rgba(245, 158, 11, 0.5)' : undefined,
-            backgroundColor: state.keepAwake ? 'rgba(245, 158, 11, 0.12)' : undefined
-          }}
+        {/* Enhanced "+ New" Dropdown */}
+        <div
+          className="new-control-container"
+          ref={newMenuRef}
+          style={{ position: 'relative', display: 'flex', alignItems: 'center' }}
         >
-          <Coffee size={16} />
-          {state.keepAwake && (
-            <span
+          <button
+            type="button"
+            className="header-primary"
+            onClick={onOpenNewModal}
+            title="Create new panel or session (All options dialog)"
+            style={{
+              borderTopRightRadius: 0,
+              borderBottomRightRadius: 0,
+              paddingRight: '8px'
+            }}
+          >
+            <Plus size={15} />
+            <span>New</span>
+          </button>
+          <button
+            type="button"
+            ref={newButtonRef}
+            className="header-primary"
+            aria-expanded={newMenuOpen}
+            onClick={() => setNewMenuOpen((open) => !open)}
+            title="Quick launch templates and AI accounts"
+            style={{
+              borderTopLeftRadius: 0,
+              borderBottomLeftRadius: 0,
+              borderLeft: '1px solid rgba(255,255,255,0.2)',
+              padding: '0 6px',
+              minWidth: '24px'
+            }}
+          >
+            <ChevronDown size={13} style={{ opacity: 0.9 }} />
+          </button>
+          {newMenuOpen && (
+            <div
+              className="layout-menu new-dropdown-menu"
+              role="menu"
               style={{
                 position: 'absolute',
-                top: '5px',
-                right: '5px',
-                width: '6px',
-                height: '6px',
-                borderRadius: '50%',
-                backgroundColor: '#10b981',
-                boxShadow: '0 0 6px #10b981'
+                right: 0,
+                top: 'calc(100% + 6px)',
+                width: '300px',
+                maxHeight: 'calc(100vh - 70px)',
+                overflowY: 'auto',
+                zIndex: 350
               }}
-            />
-          )}
-        </button>
-        {state.mode === 'code' && (
-          <>
-            <div className="layout-control" ref={menuRef}>
-              <button
-                type="button"
-                ref={layoutButtonRef}
-                className="header-control layout-trigger"
-                aria-expanded={layoutOpen}
-                aria-controls="layout-options"
-                onClick={() => setLayoutOpen((open) => !open)}
-              >
-                <LayoutGrid size={15} />
-                <span>Layout</span>
-                <ChevronDown size={13} />
-              </button>
-              {layoutOpen && (
-                <div
-                  className="layout-menu"
-                  id="layout-options"
-                  role="group"
-                  aria-label="Choose pane layout"
-                >
-                  <div className="menu-heading">Arrange workspace</div>
-                  {layouts.map(({ type, label, detail, icon: Icon }) => (
-                    <button
-                      type="button"
-                      key={type}
-                      className="layout-option"
-                      onMouseEnter={() => onHoverLayout?.(type)}
-                      onMouseLeave={() => onHoverLayout?.(null)}
-                      onFocus={() => onHoverLayout?.(type)}
-                      onBlur={() => onHoverLayout?.(null)}
-                      onClick={() => {
-                        onApplyLayout(type)
-                        onHoverLayout?.(null)
-                        setLayoutOpen(false)
-                        layoutButtonRef.current?.focus()
-                      }}
-                    >
-                      <Icon size={16} />
-                      <span>
-                        <strong>{label}</strong>
-                        <small>{detail}</small>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="view-switch" aria-label="Workspace view">
-              <button
-                type="button"
-                className={state.viewMode === 'grid' ? 'is-active' : ''}
-                onClick={showGrid}
-                title="Grid view"
-              >
-                <Grid2X2 size={12} />
-                <span>Grid</span>
-              </button>
-              <button
-                type="button"
-                className={state.viewMode === 'split' ? 'is-active' : ''}
-                onClick={onToggleFocusSplit}
-                title="Focus and tile view"
-              >
-                <Sparkles size={12} />
-                <span>Focus</span>
-              </button>
-              <button
-                type="button"
-                className={state.viewMode === 'full' ? 'is-active' : ''}
-                onClick={showFull}
-                title="Full session view"
-              >
-                <Maximize2 size={12} />
-                <span>Full</span>
-              </button>
-            </div>
-            <button
-              type="button"
-              className="header-control quick-terminal"
-              onClick={onNewTerminal}
-              title="New terminal"
             >
-              <TerminalSquare size={15} />
-              <span>Terminal</span>
-            </button>
-          </>
-        )}
-        <button type="button" className="header-primary" onClick={onOpenNewModal}>
-          <Plus size={16} />
-          <span>New</span>
-        </button>
+              <div className="menu-heading">Quick Launch</div>
+              <button
+                type="button"
+                className="layout-option"
+                onClick={() => {
+                  onNewTerminal()
+                  setNewMenuOpen(false)
+                }}
+              >
+                <TerminalSquare size={16} color="#8baeff" />
+                <span>
+                  <strong>Default Terminal</strong>
+                  <small>System shell in home directory (~)</small>
+                </span>
+              </button>
+
+              {onOpenFolderPicker && (
+                <button
+                  type="button"
+                  className="layout-option"
+                  onClick={() => {
+                    onOpenFolderPicker()
+                    setNewMenuOpen(false)
+                  }}
+                >
+                  <FolderOpen size={16} color="#e5c07b" />
+                  <span>
+                    <strong>Open Folder in Terminal...</strong>
+                    <small>Choose custom workspace directory</small>
+                  </span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                className="layout-option"
+                onClick={() => {
+                  setNewMenuOpen(false)
+                  onOpenNewModal()
+                }}
+              >
+                <Sparkles size={16} color="#759dff" />
+                <span>
+                  <strong>Launch Agent in Folder...</strong>
+                  <small>Pick an AI agent and project directory</small>
+                </span>
+              </button>
+
+              {state.aiAccounts.length > 0 && (
+                <>
+                  <div className="menu-heading" style={{ marginTop: '8px' }}>
+                    AI Agent Terminals
+                  </div>
+                  {state.aiAccounts.map((acc) => {
+                    const icon =
+                      acc.providerId === 'gemini'
+                        ? '💎'
+                        : acc.providerId === 'claude'
+                          ? '🧠'
+                          : acc.providerId === 'chatgpt'
+                            ? '🤖'
+                            : '🦁'
+                    const email = acc.googleEmail
+                    return (
+                      <div
+                        key={acc.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '2px 0'
+                        }}
+                      >
+                        <button
+                          type="button"
+                          className="layout-option"
+                          style={{ flex: 1, minWidth: 0, margin: 0 }}
+                          onClick={() => {
+                            if (onOpenTerminalWithAccount) {
+                              onOpenTerminalWithAccount(acc)
+                            } else {
+                              onNewTerminal()
+                            }
+                            setNewMenuOpen(false)
+                          }}
+                        >
+                          <span style={{ fontSize: '15px' }}>{icon}</span>
+                          <span style={{ overflow: 'hidden' }}>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <strong
+                                style={{
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap'
+                                }}
+                              >
+                                {acc.name}
+                              </strong>
+                              <SubscriptionBadge type={acc.usage?.tier} />
+                            </span>
+                            <small style={{ color: email ? '#4caf50' : '#8baeff' }}>
+                              {email || `${acc.providerId.toUpperCase()} CLI`}
+                            </small>
+                          </span>
+                        </button>
+                        {onOpenFolderPickerForAccount && (
+                          <button
+                            type="button"
+                            title={`Launch ${acc.name} in specific workspace folder`}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setNewMenuOpen(false)
+                              onOpenFolderPickerForAccount(acc)
+                            }}
+                            style={{
+                              padding: '6px 8px',
+                              background: 'rgba(255, 255, 255, 0.05)',
+                              border: '1px solid rgba(255, 255, 255, 0.1)',
+                              borderRadius: '6px',
+                              color: '#e5c07b',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              fontSize: '11px',
+                              fontWeight: 500,
+                              flexShrink: 0
+                            }}
+                            onMouseOver={(e) =>
+                              (e.currentTarget.style.backgroundColor = 'rgba(229, 192, 123, 0.15)')
+                            }
+                            onMouseOut={(e) =>
+                              (e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.05)')
+                            }
+                          >
+                            <FolderOpen size={12} />
+                            <span>In Folder</span>
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })}
+                </>
+              )}
+
+              {onOpenWebChat && (
+                <>
+                  <div className="menu-heading" style={{ marginTop: '8px' }}>
+                    Web AI Chat
+                  </div>
+                  <button
+                    type="button"
+                    className="layout-option"
+                    onClick={() => {
+                      onOpenWebChat('https://claude.ai', 'Claude.ai')
+                      setNewMenuOpen(false)
+                    }}
+                  >
+                    <Globe size={15} color="#d97706" />
+                    <span>
+                      <strong>Claude.ai Web</strong>
+                      <small>claude.ai</small>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="layout-option"
+                    onClick={() => {
+                      onOpenWebChat('https://chatgpt.com', 'ChatGPT')
+                      setNewMenuOpen(false)
+                    }}
+                  >
+                    <Globe size={15} color="#10b981" />
+                    <span>
+                      <strong>ChatGPT Web</strong>
+                      <small>chatgpt.com</small>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="layout-option"
+                    onClick={() => {
+                      onOpenWebChat('https://gemini.google.com', 'Gemini Web')
+                      setNewMenuOpen(false)
+                    }}
+                  >
+                    <Globe size={15} color="#3b82f6" />
+                    <span>
+                      <strong>Gemini Web</strong>
+                      <small>gemini.google.com</small>
+                    </span>
+                  </button>
+                </>
+              )}
+
+              <div
+                style={{
+                  height: '1px',
+                  backgroundColor: 'rgba(255,255,255,0.08)',
+                  margin: '6px 0'
+                }}
+              />
+              <button
+                type="button"
+                className="layout-option"
+                onClick={() => {
+                  onOpenNewModal()
+                  setNewMenuOpen(false)
+                }}
+              >
+                <Plus size={15} color="#94a3b8" />
+                <span>
+                  <strong>All Templates & Dialog...</strong>
+                  <small>Open full panel creation dialog</small>
+                </span>
+              </button>
+            </div>
+          )}
+        </div>
+
         <button
           type="button"
           className="icon-button settings-trigger"
           aria-label="Open settings"
           title="Settings"
+          style={{ flexShrink: 0 }}
           onClick={() => dispatch({ type: 'SET_SHOW_SETTINGS', show: true })}
         >
           <Settings size={17} />

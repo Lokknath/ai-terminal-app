@@ -47,11 +47,11 @@ function parseExpiry(value: string, now: number): number | undefined {
   if (!match) return undefined
   const currentYear = new Date(now).getFullYear()
   const year = match[3] ? Number(match[3]) : currentYear
-  // Claude displays an expiry date without a time. Use noon IST as a stable
+  // Claude displays an expiry date without a time. Use noon UTC as a stable
   // date anchor, then show the date only in the UI rather than inventing a time.
-  let parsed = Date.parse(`${match[1]} ${match[2]}, ${year} 12:00:00 GMT+05:30`)
+  let parsed = Date.parse(`${match[1]} ${match[2]}, ${year} 12:00:00 UTC`)
   if (!match[3] && parsed + 12 * 60 * 60_000 < now)
-    parsed = Date.parse(`${match[1]} ${match[2]}, ${year + 1} 12:00:00 GMT+05:30`)
+    parsed = Date.parse(`${match[1]} ${match[2]}, ${year + 1} 12:00:00 UTC`)
   return Number.isFinite(parsed) && parsed > now ? parsed : undefined
 }
 

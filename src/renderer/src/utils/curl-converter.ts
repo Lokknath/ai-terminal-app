@@ -81,15 +81,35 @@ export function parseCurlCommand(rawCmd: string): ParsedCurl {
       continue
     }
 
-    // Method: -X, --request
+    // URL: --url <url> or --url=<url>
+    if (token === '--url') {
+      if (i + 1 < tokens.length) {
+        url = tokens[++i].replace(/^['"]|['"]$/g, '')
+      }
+      continue
+    }
+    if (token.startsWith('--url=')) {
+      url = token.slice(6).replace(/^['"]|['"]$/g, '')
+      continue
+    }
+
+    // Method: -X, --request, or -XPOST
     if (token === '-X' || token === '--request') {
       if (i + 1 < tokens.length) {
         method = tokens[++i].toUpperCase()
       }
       continue
     }
+    if (token.startsWith('-X') && token.length > 2) {
+      method = token.slice(2).toUpperCase()
+      continue
+    }
+    if (token.startsWith('--request=')) {
+      method = token.slice(10).toUpperCase()
+      continue
+    }
 
-    // Headers: -H, --header
+    // Headers: -H, --header, or -H'Header: val'
     if (token === '-H' || token === '--header') {
       if (i + 1 < tokens.length) {
         const headerStr = tokens[++i]
@@ -102,8 +122,78 @@ export function parseCurlCommand(rawCmd: string): ParsedCurl {
       }
       continue
     }
+    if (token.startsWith('-H') && token.length > 2) {
+      const headerStr = token.slice(2).replace(/^['"]|['"]$/g, '')
+      const colonIdx = headerStr.indexOf(':')
+      if (colonIdx > 0) {
+        const key = headerStr.slice(0, colonIdx).trim()
+        const val = headerStr.slice(colonIdx + 1).trim()
+        headers[key] = val
+      }
+      continue
+    }
+    if (token.startsWith('--header=')) {
+      const headerStr = token.slice(9).replace(/^['"]|['"]$/g, '')
+      const colonIdx = headerStr.indexOf(':')
+      if (colonIdx > 0) {
+        const key = headerStr.slice(0, colonIdx).trim()
+        const val = headerStr.slice(colonIdx + 1).trim()
+        headers[key] = val
+      }
+      continue
+    }
 
-    // Cookies: -b, --cookie
+    // JSON flag: --json
+    if (token === '--json') {
+      if (i + 1 < tokens.length) {
+        body = tokens[++i]
+        if (!headers['Content-Type'] && !headers['content-type']) {
+          headers['Content-Type'] = 'application/json'
+        }
+        if (!headers['Accept'] && !headers['accept']) {
+          headers['Accept'] = 'application/json'
+        }
+        if (!method) method = 'POST'
+      }
+      continue
+    }
+    if (token.startsWith('--json=')) {
+      body = token.slice(7)
+      if (!headers['Content-Type'] && !headers['content-type']) {
+        headers['Content-Type'] = 'application/json'
+      }
+      if (!headers['Accept'] && !headers['accept']) {
+        headers['Accept'] = 'application/json'
+      }
+      if (!method) method = 'POST'
+      continue
+    }
+
+    // User-Agent: -A, --user-agent
+    if (token === '-A' || token === '--user-agent') {
+      if (i + 1 < tokens.length) {
+        headers['User-Agent'] = tokens[++i]
+      }
+      continue
+    }
+    if (token.startsWith('--user-agent=')) {
+      headers['User-Agent'] = token.slice(13)
+      continue
+    }
+
+    // Referer: -e, --referer
+    if (token === '-e' || token === '--referer') {
+      if (i + 1 < tokens.length) {
+        headers['Referer'] = tokens[++i]
+      }
+      continue
+    }
+    if (token.startsWith('--referer=')) {
+      headers['Referer'] = token.slice(10)
+      continue
+    }
+
+    // Cookies: -b, --cookie, or -b'cookie'
     if (token === '-b' || token === '--cookie') {
       if (i + 1 < tokens.length) {
         cookies = tokens[++i]
@@ -111,8 +201,18 @@ export function parseCurlCommand(rawCmd: string): ParsedCurl {
       }
       continue
     }
+    if (token.startsWith('-b') && token.length > 2) {
+      cookies = token.slice(2).replace(/^['"]|['"]$/g, '')
+      headers['Cookie'] = cookies
+      continue
+    }
+    if (token.startsWith('--cookie=')) {
+      cookies = token.slice(9).replace(/^['"]|['"]$/g, '')
+      headers['Cookie'] = cookies
+      continue
+    }
 
-    // Body: -d, --data, --data-raw, --data-binary, --data-ascii, --data-urlencode
+    // Body: -d, --data, --data-raw, --data-binary, --data-ascii, --data-urlencode, or -d'...'
     if (
       token === '-d' ||
       token === '--data' ||
@@ -128,13 +228,29 @@ export function parseCurlCommand(rawCmd: string): ParsedCurl {
       }
       continue
     }
+    if (token.startsWith('-d') && token.length > 2) {
+      const dataVal = token.slice(2).replace(/^['"]|['"]$/g, '')
+      body = body ? `${body}&${dataVal}` : dataVal
+      if (!method) method = 'POST'
+      continue
+    }
+    if (token.startsWith('--data=') || token.startsWith('--data-raw=')) {
+      const eqIdx = token.indexOf('=')
+      const dataVal = token.slice(eqIdx + 1).replace(/^['"]|['"]$/g, '')
+      body = body ? `${body}&${dataVal}` : dataVal
+      if (!method) method = 'POST'
+      continue
+    }
 
     // User authentication: -u, --user
     if (token === '-u' || token === '--user') {
       if (i + 1 < tokens.length) {
         const userPass = tokens[++i]
         try {
-          const encoded = btoa(userPass)
+          const encoded =
+            typeof btoa !== 'undefined'
+              ? btoa(unescape(encodeURIComponent(userPass)))
+              : Buffer.from(userPass, 'utf-8').toString('base64')
           headers['Authorization'] = `Basic ${encoded}`
         } catch {
           // Ignore encoding errors
@@ -143,9 +259,53 @@ export function parseCurlCommand(rawCmd: string): ParsedCurl {
       continue
     }
 
+    // Skip parameters of options with values
+    if (
+      token === '-m' ||
+      token === '--max-time' ||
+      token === '--connect-timeout' ||
+      token === '--retry' ||
+      token === '--retry-delay' ||
+      token === '-o' ||
+      token === '--output'
+    ) {
+      if (i + 1 < tokens.length) i++
+      continue
+    }
+
+    // Skip common boolean flags
+    if (
+      [
+        '-s',
+        '--silent',
+        '-S',
+        '--show-error',
+        '-k',
+        '--insecure',
+        '-L',
+        '--location',
+        '-i',
+        '--include',
+        '-I',
+        '--head',
+        '-v',
+        '--verbose',
+        '--compressed',
+        '--raw',
+        '-g',
+        '--globoff',
+        '-f',
+        '--fail'
+      ].includes(token)
+    ) {
+      if (token === '-I' || token === '--head') {
+        if (!method) method = 'HEAD'
+      }
+      continue
+    }
+
     // URL detection (arguments without leading dash)
     if (!token.startsWith('-') && !url) {
-      // Strip potential enclosing quotes
       const cleanUrl = token.replace(/^['"]|['"]$/g, '')
       if (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://')) {
         url = cleanUrl

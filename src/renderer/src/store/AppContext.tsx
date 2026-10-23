@@ -109,6 +109,11 @@ export type AppAction =
       providerId?: string
       env?: Record<string, string>
     }
+  | {
+      type: 'RENAME_TERMINAL'
+      id: string
+      name: string
+    }
   | { type: 'SET_KEEP_AWAKE'; enabled: boolean }
 
 // ─── Reducer ─────────────────────────────────────────
@@ -119,15 +124,15 @@ function appReducer(state: AppState, action: AppAction): AppState {
     case 'SET_VIEW_MODE':
       return { ...state, viewMode: action.viewMode }
     case 'SET_ACTIVE_SESSION':
-      return { ...state, activeSessionId: action.id, viewMode: action.id ? 'full' : state.viewMode }
+      return { ...state, activeSessionId: action.id }
     case 'SET_FOCUS_SESSION':
-      return { ...state, focusSessionId: action.id, viewMode: action.id ? 'split' : 'grid' }
+      return { ...state, focusSessionId: action.id }
     case 'DOCK_SESSION':
       return {
         ...state,
         dockedSessionIds: Array.from(new Set([...state.dockedSessionIds, action.id])),
         activeSessionId: state.activeSessionId === action.id ? null : state.activeSessionId,
-        viewMode: state.activeSessionId === action.id ? 'grid' : state.viewMode
+        viewMode: state.activeSessionId === action.id && state.viewMode === 'full' ? 'grid' : state.viewMode
       }
     case 'UNDOCK_SESSION':
       return {
@@ -213,6 +218,13 @@ function appReducer(state: AppState, action: AppAction): AppState {
                 env: action.env
               }
             : t
+        )
+      }
+    case 'RENAME_TERMINAL':
+      return {
+        ...state,
+        terminals: state.terminals.map((t) =>
+          t.id === action.id ? { ...t, name: action.name } : t
         )
       }
     case 'SET_KEEP_AWAKE':

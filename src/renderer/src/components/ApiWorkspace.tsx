@@ -7,7 +7,6 @@ import {
   Copy,
   FileCode,
   History,
-  LoaderCircle,
   Play,
   Plus,
   Save,
@@ -48,12 +47,16 @@ const historyKey = 'nexus-api-history-v1'
 const privateHeader = /^(authorization|cookie|proxy-authorization|x-api-key)\s*:/i
 
 function safeHistoryUrl(value: string): string {
-  const parsed = new URL(value)
-  // Query strings and fragments can contain secrets under arbitrary names.
-  // History keeps the endpoint only; saved templates are a separate explicit action.
-  parsed.search = ''
-  parsed.hash = ''
-  return parsed.toString()
+  try {
+    const parsed = new URL(value)
+    // Query strings and fragments can contain secrets under arbitrary names.
+    // History keeps the endpoint only; saved templates are a separate explicit action.
+    parsed.search = ''
+    parsed.hash = ''
+    return parsed.toString()
+  } catch {
+    return value
+  }
 }
 
 function readArray<T>(key: string): T[] {
@@ -67,14 +70,28 @@ function readArray<T>(key: string): T[] {
 
 function parseHeaders(text: string): Record<string, string> {
   const result: Record<string, string> = {}
-  for (const line of text.split('\n')) {
-    if (!line.trim()) continue
+  let currentKey = ''
+  for (const rawLine of text.split('\n')) {
+    const line = rawLine.trimEnd()
+    if (!line.trim() || line.trimStart().startsWith('#')) continue
+
+    // Handle multiline header continuation (lines starting with space/tab)
+    if (/^\s+/.test(rawLine) && currentKey) {
+      result[currentKey] = `${result[currentKey]} ${line.trim()}`
+      continue
+    }
+
     const colon = line.indexOf(':')
-    if (colon <= 0) throw new Error(`Header needs a name and value: ${line}`)
-    const name = line.slice(0, colon).trim()
-    const value = line.slice(colon + 1).trim()
-    if (!name || /[\r\n]/.test(value)) throw new Error(`Invalid header: ${name}`)
-    result[name] = value
+    if (colon > 0) {
+      const name = line.slice(0, colon).trim()
+      const value = line.slice(colon + 1).trim()
+      if (name) {
+        currentKey = name
+        result[name] = value
+      }
+    } else if (currentKey) {
+      result[currentKey] = `${result[currentKey]}; ${line.trim()}`
+    }
   }
   return result
 }
@@ -95,7 +112,11 @@ function getStatusColor(status: number): string {
   return '#f44336'
 }
 
-export default function ApiWorkspace(): JSX.Element {
+interface ApiWorkspaceProps {
+  onRunInTerminal?: (command: string) => void
+}
+
+export default function ApiWorkspace({ onRunInTerminal }: ApiWorkspaceProps = {}): JSX.Element {
   const [method, setMethod] = useState('GET')
   const [url, setUrl] = useState('')
   const [headers, setHeaders] = useState('')
@@ -211,7 +232,10 @@ export default function ApiWorkspace(): JSX.Element {
     setResponse(null)
     let requestId = ''
     try {
-      const targetUrl = (overrideUrl !== undefined ? overrideUrl : url).trim()
+      let targetUrl = (overrideUrl !== undefined ? overrideUrl : url).trim()
+      if (targetUrl && !/^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(targetUrl)) {
+        targetUrl = `http://${targetUrl}`
+      }
       const targetMethod = (overrideMethod !== undefined ? overrideMethod : method).toUpperCase()
       const targetBody = overrideBody !== undefined ? overrideBody : body
       const parsed = new URL(targetUrl)
@@ -245,7 +269,7 @@ export default function ApiWorkspace(): JSX.Element {
       const next = [
         {
           id: crypto.randomUUID(),
-          method,
+          method: targetMethod,
           url: safeHistoryUrl(parsed.toString()),
           status: result.status,
           durationMs: result.durationMs,
@@ -463,6 +487,30 @@ export default function ApiWorkspace(): JSX.Element {
                 >
                   <Copy size={15} /> Copy cURL
                 </button>
+                {onRunInTerminal && (
+                  <button
+                    type="button"
+                    className="studio-secondary"
+                    onClick={() => {
+                      let parsedHeaders = {}
+                      try {
+                        parsedHeaders = parseHeaders(headers)
+                      } catch {
+                        // ignore
+                      }
+                      const curl = axiosToCurl({ method, url: url.trim(), headers: parsedHeaders, body })
+                      onRunInTerminal(curl)
+                    }}
+                    title="Execute request directly in a Terminal pane using system cURL"
+                    style={{
+                      backgroundColor: 'rgba(56, 189, 248, 0.12)',
+                      borderColor: 'rgba(56, 189, 248, 0.35)',
+                      color: '#38bdf8'
+                    }}
+                  >
+                    <Terminal size={15} /> Run in Terminal
+                  </button>
+                )}
                 <button type="button" className="studio-secondary" onClick={saveRequest}>
                   <Save size={15} /> Save
                 </button>
@@ -495,15 +543,45 @@ export default function ApiWorkspace(): JSX.Element {
                 }}
                 spellCheck={false}
               />
-              <button
-                type="button"
-                className="studio-primary"
-                onClick={() => void send()}
-                disabled={Boolean(activeId)}
-              >
-                {activeId ? <LoaderCircle className="is-spinning" size={16} /> : <Send size={16} />}
-                {activeId ? 'Sending' : 'Send'}
-              </button>
+              {activeId ? (
+                <button
+                  type="button"
+                  style={{
+                    backgroundColor: '#dc2626',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '8px',
+                    padding: '8px 16px',
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                  onClick={() => {
+                    if (activeRequestRef.current) {
+                      window.api.cancelApiRequest(activeRequestRef.current)
+                      activeRequestRef.current = null
+                      setActiveId(null)
+                      setError('Request canceled by user.')
+                    }
+                  }}
+                  title="Abort in-flight request"
+                >
+                  <X size={16} />
+                  Cancel
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="studio-primary"
+                  onClick={() => void send()}
+                >
+                  <Send size={16} />
+                  Send
+                </button>
+              )}
             </div>
             <div className="api-form-grid">
               <div>
@@ -627,6 +705,55 @@ export default function ApiWorkspace(): JSX.Element {
                     <div className="studio-feedback" role="status">
                       Redirect not followed. Review the Location header before sending a new
                       request.
+                    </div>
+                  )}
+                {response.status === 403 &&
+                  (response.body.includes('Just a moment...') ||
+                    response.body.includes('cf-mitigated') ||
+                    Boolean(response.headers['cf-ray'])) && (
+                    <div
+                      className="studio-feedback is-error"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '8px',
+                        flexWrap: 'wrap'
+                      }}
+                      role="alert"
+                    >
+                      <span>
+                        🛡️ <strong>Cloudflare Bot Challenge (403)</strong>: This endpoint requires
+                        Cloudflare verification or native system cURL TLS handshake.
+                      </span>
+                      {onRunInTerminal && (
+                        <button
+                          type="button"
+                          style={{
+                            padding: '4px 10px',
+                            backgroundColor: '#4f46e5',
+                            border: 'none',
+                            borderRadius: '4px',
+                            color: '#fff',
+                            fontSize: '11.5px',
+                            fontWeight: 600,
+                            cursor: 'pointer'
+                          }}
+                          onClick={() => {
+                            let parsedHeaders = {}
+                            try {
+                              parsedHeaders = parseHeaders(headers)
+                            } catch {
+                              // ignore
+                            }
+                            onRunInTerminal(
+                              axiosToCurl({ method, url: url.trim(), headers: parsedHeaders, body })
+                            )
+                          }}
+                        >
+                          Run in Terminal Instead
+                        </button>
+                      )}
                     </div>
                   )}
                 <div className="api-response-tabs" style={{ flexWrap: 'wrap', gap: '4px' }}>
@@ -861,6 +988,38 @@ export default function ApiWorkspace(): JSX.Element {
                 >
                   Cancel
                 </button>
+                {onRunInTerminal && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const cmd = importCurlText.trim()
+                      if (!cmd) {
+                        setError('Please paste a cURL command first.')
+                        return
+                      }
+                      setShowImportModal(false)
+                      setImportCurlText('')
+                      onRunInTerminal(cmd)
+                      setNotice('cURL command launched in terminal pane.')
+                    }}
+                    style={{
+                      backgroundColor: 'rgba(56, 189, 248, 0.18)',
+                      border: '1px solid rgba(56, 189, 248, 0.4)',
+                      borderRadius: '6px',
+                      padding: '8px 14px',
+                      color: '#38bdf8',
+                      fontSize: '12.5px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px'
+                    }}
+                    title="Launch directly in a terminal pane"
+                  >
+                    <Terminal size={14} /> Run in Terminal
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => handleImportCurl(false)}

@@ -55,24 +55,37 @@ export function initDevToolsManager(): void {
       const seen = new Set<string>()
 
       for (let i = 1; i < lines.length; i++) {
-        const parts = lines[i].trim().split(/\s+/)
-        if (parts.length < 9) continue
-        const command = parts[0]
-        const pid = parseInt(parts[1], 10)
-        const user = parts[2]
-        const nodeName = parts[parts.length - 2] || parts[parts.length - 1]
-        const portMatch = nodeName.match(/:(\d+)$/) || lines[i].match(/:(\d+)\s+\(LISTEN\)/)
-        if (portMatch && pid) {
-          const port = parseInt(portMatch[1], 10)
+        const line = lines[i].trim()
+        if (!line) continue
+
+        // Extract port from end: :3000 (LISTEN) or :3000
+        const portMatch = line.match(/:(\d+)\s*(?:\(LISTEN\))?$/) || line.match(/:(\d+)\s+\(LISTEN\)/)
+        if (!portMatch) continue
+        const port = parseInt(portMatch[1], 10)
+
+        // Robust match for COMMAND (including spaces), PID, and USER before FD and TYPE (IPv4/IPv6)
+        const procMatch = line.match(/^([^\n]+?)\s+(\d+)\s+(\S+)\s+\S+\s+(?:IPv4|IPv6)/)
+        if (procMatch) {
+          const command = procMatch[1].trim()
+          const pid = parseInt(procMatch[2], 10)
+          const user = procMatch[3]
           const key = `${port}-${pid}`
-          if (!seen.has(key)) {
+          if (!seen.has(key) && port > 0 && pid > 0) {
             seen.add(key)
-            results.push({
-              port,
-              pid,
-              command,
-              user
-            })
+            results.push({ port, pid, command, user })
+          }
+        } else {
+          // Fallback column split
+          const parts = line.split(/\s+/)
+          if (parts.length >= 9) {
+            const pid = parseInt(parts[1], 10)
+            const command = parts[0]
+            const user = parts[2]
+            const key = `${port}-${pid}`
+            if (!seen.has(key) && port > 0 && pid > 0) {
+              seen.add(key)
+              results.push({ port, pid, command, user })
+            }
           }
         }
       }
@@ -89,12 +102,17 @@ export function initDevToolsManager(): void {
     try {
       if (process.platform !== 'win32') {
         try {
+          await execPromise(`pkill -9 -P ${pid}`)
+        } catch {
+          /* ignore if no children */
+        }
+        try {
           process.kill(-pid, 'SIGKILL')
         } catch {
           process.kill(pid, 'SIGKILL')
         }
       } else {
-        await execPromise(`taskkill /F /PID ${pid}`)
+        await execPromise(`taskkill /F /T /PID ${pid}`)
       }
       return true
     } catch {

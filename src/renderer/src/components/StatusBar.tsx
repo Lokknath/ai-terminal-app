@@ -141,10 +141,16 @@ export default function StatusBar({
           </div>
         )}
 
-        <div className="status-bar-item status-mode-badge" title="Current workspace mode">
+        <button
+          type="button"
+          className="status-bar-item status-mode-badge"
+          onClick={() => window.dispatchEvent(new CustomEvent('nexus-cycle-mode'))}
+          title="Current workspace mode. Click to cycle workspaces (Code, Agent, Chat, API, Notes, Usage)."
+          style={{ cursor: 'pointer', background: 'transparent', border: 'none', padding: 0 }}
+        >
           <Activity size={11} />
           <span>{modeLabel}</span>
-        </div>
+        </button>
       </div>
 
       {/* Center: Active Terminal Working Directory & AI Account */}

@@ -303,24 +303,24 @@ export default function CommandPalette({
           {(categoryFilter === 'all' || categoryFilter === 'workspace') &&
             renderSection('🚀 Workspaces & Navigation', [
               renderItem(
-                <Bot size={16} />,
-                'Switch to Agent Workspace',
-                'Autonomous multi-agent orchestration and status monitoring (⌘1)',
-                () => {
-                  dispatch({ type: 'SET_MODE', mode: 'agent' })
-                  close()
-                },
-                '#8baeff'
-              ),
-              renderItem(
                 <TerminalSquare size={16} />,
                 'Switch to Code Workspace',
-                'Multi-pane terminal grid with AI CLI integration (⌘2)',
+                'Multi-pane terminal grid with AI CLI integration (⌘1)',
                 () => {
                   dispatch({ type: 'SET_MODE', mode: 'code' })
                   close()
                 },
                 '#4caf50'
+              ),
+              renderItem(
+                <Bot size={16} />,
+                'Switch to Agent Workspace',
+                'Autonomous multi-agent orchestration and status monitoring (⌘2)',
+                () => {
+                  dispatch({ type: 'SET_MODE', mode: 'agent' })
+                  close()
+                },
+                '#8baeff'
               ),
               renderItem(
                 <MessageSquare size={16} />,
@@ -333,14 +333,14 @@ export default function CommandPalette({
                 '#ffd54f'
               ),
               renderItem(
-                <Activity size={16} />,
-                'Switch to Quota & Usage Analytics',
-                'Live token usage, ratelimits, and subscription tiers (⌘4)',
+                <Send size={16} />,
+                'Switch to API Studio',
+                'Draft, test, and execute REST requests with headers and secrets (⌘4)',
                 () => {
-                  dispatch({ type: 'SET_MODE', mode: 'usage' })
+                  dispatch({ type: 'SET_MODE', mode: 'api' })
                   close()
                 },
-                '#ff8a65'
+                '#38bdf8'
               ),
               renderItem(
                 <NotebookPen size={16} />,
@@ -353,14 +353,14 @@ export default function CommandPalette({
                 '#a78bfa'
               ),
               renderItem(
-                <Send size={16} />,
-                'Switch to API Studio',
-                'Draft, test, and execute REST requests with headers and secrets (⌘6)',
+                <Activity size={16} />,
+                'Switch to Quota & Usage Analytics',
+                'Live token usage, ratelimits, and subscription tiers (⌘6)',
                 () => {
-                  dispatch({ type: 'SET_MODE', mode: 'api' })
+                  dispatch({ type: 'SET_MODE', mode: 'usage' })
                   close()
                 },
-                '#38bdf8'
+                '#ff8a65'
               ),
               renderItem(
                 <FileCode size={16} />,
@@ -787,10 +787,11 @@ export default function CommandPalette({
                 () => {
                   if (state.viewMode === 'full') {
                     dispatch({ type: 'SET_VIEW_MODE', viewMode: 'grid' })
-                    dispatch({ type: 'SET_ACTIVE_SESSION', id: null })
                   } else {
-                    if (state.terminals.length > 0) {
-                      dispatch({ type: 'SET_ACTIVE_SESSION', id: state.terminals[0].id })
+                    const targetId = state.activeSessionId || state.terminals[0]?.id
+                    if (targetId) {
+                      dispatch({ type: 'SET_ACTIVE_SESSION', id: targetId })
+                      dispatch({ type: 'SET_VIEW_MODE', viewMode: 'full' })
                     }
                   }
                   close()

@@ -1,4 +1,8 @@
-import { ipcMain, net, type WebContents } from 'electron'
+import { ipcMain, type WebContents } from 'electron'
+import http from 'node:http'
+import https from 'node:https'
+import zlib from 'node:zlib'
+import { URL } from 'node:url'
 
 export interface ApiRequestInput {
   id: string
@@ -55,57 +59,190 @@ function validate(input: ApiRequestInput): ApiRequestInput {
     throw new Error('Headers must be key-value pairs.')
   }
   const headers: Record<string, string> = {}
-  for (const [name, value] of Object.entries(input.headers)) {
-    if (
-      !/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name) ||
-      typeof value !== 'string' ||
-      /[\r\n]/.test(value)
-    ) {
-      throw new Error(`Invalid header: ${name}`)
+  const autoHeaders = new Set(['host', 'content-length', 'connection'])
+
+  for (const [name, rawValue] of Object.entries(input.headers)) {
+    const trimmedName = name.trim()
+    if (!trimmedName) continue
+
+    // Handle HTTP/2 pseudo-headers (e.g. copied from Chrome DevTools)
+    if (trimmedName.startsWith(':')) {
+      if (trimmedName.toLowerCase() === ':authority' && !headers['Host']) {
+        const val = typeof rawValue === 'string' ? rawValue.replace(/[\r\n]+/g, ' ').trim() : String(rawValue)
+        headers['Host'] = val
+      }
+      // Silently skip other HTTP/2 pseudo-headers (:method, :path, :scheme)
+      continue
     }
-    if (['host', 'content-length', 'connection'].includes(name.toLowerCase())) {
-      throw new Error(`${name} is set automatically by the network client.`)
+
+    // Silently skip automatic headers instead of throwing validation errors
+    if (autoHeaders.has(trimmedName.toLowerCase())) continue
+
+    const value = typeof rawValue === 'string' ? rawValue.replace(/[\r\n]+/g, ' ').trim() : String(rawValue)
+    if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(trimmedName)) {
+      throw new Error(`Invalid header name: ${trimmedName}`)
     }
-    headers[name] = value
+    // Strip control characters outside printable range to avoid Node ERR_INVALID_CHAR
+    const sanitizedValue = value.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+    headers[trimmedName] = sanitizedValue
   }
+
   return { id: input.id, method, url: url.toString(), headers, body }
 }
 
-async function readLimitedResponse(
-  response: Response,
-  controller: AbortController
-): Promise<{
+interface NodeResponse {
+  status: number
+  statusText: string
+  headers: Record<string, string>
   body: string
   sizeBytes: number
   truncated: boolean
-}> {
-  if (!response.body) return { body: '', sizeBytes: 0, truncated: false }
-  const reader = response.body.getReader()
-  const chunks: Uint8Array[] = []
-  let sizeBytes = 0
-  let truncated = false
-  try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      const remaining = maxResponseBytes - sizeBytes
-      if (value.length > remaining) {
-        if (remaining > 0) chunks.push(value.subarray(0, remaining))
-        sizeBytes += remaining
-        truncated = true
-        break
+  location?: string
+}
+
+function executeNodeRequest(
+  targetUrl: string,
+  method: string,
+  headers: Record<string, string>,
+  body: string | undefined,
+  controller: AbortController
+): Promise<NodeResponse> {
+  return new Promise((resolve, reject) => {
+    try {
+      const parsedUrl = new URL(targetUrl)
+      const isHttps = parsedUrl.protocol === 'https:'
+      const client = isHttps ? https : http
+
+      const reqHeaders = { ...headers }
+
+      // Set default User-Agent if not provided
+      if (!Object.keys(reqHeaders).some((k) => k.toLowerCase() === 'user-agent')) {
+        reqHeaders['User-Agent'] =
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36'
       }
-      chunks.push(value)
-      sizeBytes += value.length
+
+      // Add Accept-Encoding for automated decompression
+      if (!Object.keys(reqHeaders).some((k) => k.toLowerCase() === 'accept-encoding')) {
+        reqHeaders['Accept-Encoding'] = 'gzip, deflate, br'
+      }
+
+      if (body && method !== 'GET' && method !== 'HEAD') {
+        reqHeaders['Content-Length'] = String(Buffer.byteLength(body))
+      }
+
+      const req = client.request(
+        parsedUrl,
+        {
+          method,
+          headers: reqHeaders,
+          signal: controller.signal
+        },
+        (res) => {
+          const rawHeaders = res.headers
+          const outHeaders: Record<string, string> = {}
+          for (const [k, v] of Object.entries(rawHeaders)) {
+            if (v === undefined) continue
+            outHeaders[k] = Array.isArray(v) ? v.join(', ') : v
+          }
+
+          let stream: NodeJS.ReadableStream = res
+          const encoding = (res.headers['content-encoding'] || '').toLowerCase()
+          try {
+            if (encoding === 'gzip') {
+              stream = res.pipe(zlib.createGunzip())
+            } else if (encoding === 'deflate') {
+              stream = res.pipe(zlib.createInflate())
+            } else if (encoding === 'br') {
+              stream = res.pipe(zlib.createBrotliDecompress())
+            }
+          } catch {
+            // If decompressor creation fails, fallback to raw stream
+            stream = res
+          }
+
+          const chunks: Buffer[] = []
+          let totalBytes = 0
+          let truncated = false
+
+          stream.on('data', (chunk: Buffer) => {
+            if (truncated) return
+            const remaining = maxResponseBytes - totalBytes
+            if (chunk.length > remaining) {
+              if (remaining > 0) chunks.push(chunk.subarray(0, remaining))
+              totalBytes += remaining
+              truncated = true
+              if ('destroy' in res && typeof res.destroy === 'function') {
+                res.destroy()
+              }
+            } else {
+              chunks.push(chunk)
+              totalBytes += chunk.length
+            }
+          })
+
+          stream.on('end', () => {
+            const contentType = (outHeaders['content-type'] || '').toLowerCase()
+            const isBinary =
+              contentType.startsWith('image/') ||
+              contentType.startsWith('audio/') ||
+              contentType.startsWith('video/') ||
+              contentType.includes('application/octet-stream') ||
+              contentType.includes('application/pdf') ||
+              contentType.includes('application/zip') ||
+              contentType.includes('application/gzip')
+
+            let fullBody = ''
+            if (isBinary) {
+              const fullBuffer = Buffer.concat(chunks)
+              const previewLength = Math.min(fullBuffer.length, 64 * 1024)
+              fullBody = `[Binary Content: ${totalBytes} bytes, Content-Type: ${contentType || 'unknown'}]\nBase64 Preview: data:${contentType || 'application/octet-stream'};base64,${fullBuffer.subarray(0, previewLength).toString('base64')}`
+            } else {
+              fullBody = Buffer.concat(chunks).toString('utf8')
+            }
+
+            const locationHeader = res.headers['location']
+            resolve({
+              status: res.statusCode || 200,
+              statusText: res.statusMessage || 'OK',
+              headers: outHeaders,
+              body: fullBody,
+              sizeBytes: totalBytes,
+              truncated,
+              location: Array.isArray(locationHeader) ? locationHeader[0] : locationHeader
+            })
+          })
+
+          stream.on('error', (err) => {
+            if (chunks.length > 0) {
+              // Partial response received before error
+              const fullBody = Buffer.concat(chunks).toString('utf8')
+              resolve({
+                status: res.statusCode || 200,
+                statusText: res.statusMessage || 'OK',
+                headers: outHeaders,
+                body: fullBody,
+                sizeBytes: totalBytes,
+                truncated: true
+              })
+            } else {
+              reject(err)
+            }
+          })
+        }
+      )
+
+      req.on('error', (err) => {
+        reject(err)
+      })
+
+      if (body && method !== 'GET' && method !== 'HEAD') {
+        req.write(body)
+      }
+      req.end()
+    } catch (err) {
+      reject(err)
     }
-  } finally {
-    if (truncated) {
-      await reader.cancel().catch(() => undefined)
-      controller.abort()
-    }
-    reader.releaseLock()
-  }
-  return { body: new TextDecoder().decode(Buffer.concat(chunks)), sizeBytes, truncated }
+  })
 }
 
 export function initApiClient(): void {
@@ -124,36 +261,35 @@ export function initApiClient(): void {
       }, 30_000)
       const abortOnSenderClose = (): void => controller.abort()
       event.sender.once('destroyed', abortOnSenderClose)
+
       const start = performance.now()
       let currentUrl = input.url
       let method = input.method
       let body = input.body
       const headers = { ...input.headers }
+
       try {
         for (let redirect = 0; redirect <= 5; redirect++) {
-          const response = await net.fetch(currentUrl, {
-            method,
-            headers,
-            body: body && method !== 'GET' && method !== 'HEAD' ? body : undefined,
-            credentials: 'omit',
-            redirect: 'manual',
-            signal: controller.signal
-          })
-          const location = response.headers.get('location')
-          if ([301, 302, 303, 307, 308].includes(response.status) && location) {
+          const res = await executeNodeRequest(currentUrl, method, headers, body, controller)
+
+          const location = res.location
+          if ([301, 302, 303, 307, 308].includes(res.status) && location) {
             let next: URL | undefined
             try {
               next = parseHttpUrl(new URL(location, currentUrl).toString())
             } catch {
               // Show an invalid or non-HTTP Location instead of following it.
             }
-            // A different origin could receive custom API keys or a POST body.
-            // Return its redirect response so the user can review the destination.
-            if (next?.origin === new URL(currentUrl).origin) {
+
+            if (
+              next &&
+              (next.origin === new URL(currentUrl).origin ||
+                next.hostname === new URL(currentUrl).hostname)
+            ) {
               if (redirect === 5) throw new Error('Too many redirects (maximum 5).')
               if (
-                response.status === 303 ||
-                ((response.status === 301 || response.status === 302) && method === 'POST')
+                res.status === 303 ||
+                ((res.status === 301 || res.status === 302) && method === 'POST')
               ) {
                 method = 'GET'
                 body = ''
@@ -162,22 +298,23 @@ export function initApiClient(): void {
               continue
             }
           }
-          const content = await readLimitedResponse(response, controller)
+
           return {
-            status: response.status,
-            statusText: response.statusText,
+            status: res.status,
+            statusText: res.statusText,
             url: currentUrl,
-            headers: Object.fromEntries(response.headers.entries()),
-            body: content.body,
+            headers: res.headers,
+            body: res.body,
             durationMs: Math.round(performance.now() - start),
-            sizeBytes: content.sizeBytes,
-            truncated: content.truncated
+            sizeBytes: res.sizeBytes,
+            truncated: res.truncated
           }
         }
         throw new Error('Too many redirects.')
       } catch (error) {
-        if (controller.signal.aborted)
+        if (controller.signal.aborted) {
           throw new Error(timedOut ? 'Request timed out after 30 seconds.' : 'Request cancelled.')
+        }
         throw error
       } finally {
         clearTimeout(timer)

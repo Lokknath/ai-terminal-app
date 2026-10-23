@@ -129,6 +129,8 @@ declare global {
       ) => Promise<HandoffResult>
       readClipboardText: () => Promise<string>
       writeClipboardText: (text: string) => Promise<boolean>
+      readClipboardImage: () => Promise<string | null>
+      saveClipboardImageBuffer: (buffer: Uint8Array) => Promise<string | null>
       sendApiRequest: (input: ApiRequestInput) => Promise<ApiResponseOutput>
       cancelApiRequest: (id: string) => void
       sendDesktopNotification: (options: {
@@ -156,6 +158,8 @@ declare global {
       relaunchApp: () => Promise<void>
       quitApp: () => Promise<void>
       forceQuitApp: () => Promise<void>
+      onSystemResume: (cb: () => void) => () => void
+      onSystemSuspend: (cb: () => void) => () => void
     }
   }
 }

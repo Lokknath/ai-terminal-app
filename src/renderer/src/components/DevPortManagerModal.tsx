@@ -53,7 +53,7 @@ export default function DevPortManagerModal({
           refreshPorts()
         }, 350)
       } else {
-        setStatusMessage(`Failed to kill PID ${port.pid}`)
+        setStatusMessage(`Failed to kill PID ${port.pid} (may require root/sudo permission)`)
       }
     } catch {
       setStatusMessage(`Error killing PID ${port.pid}`)

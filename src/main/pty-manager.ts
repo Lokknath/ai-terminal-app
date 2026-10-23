@@ -3,6 +3,7 @@ import { ipcMain, WebContents } from 'electron'
 import os from 'os'
 import path from 'path'
 import fs from 'fs'
+import { execFile, exec, execFileSync, execSync } from 'child_process'
 
 interface ManagedPty {
   process: pty.IPty
@@ -35,15 +36,26 @@ function resolveEnv(customEnv?: Record<string, string>): Record<string, string> 
 }
 
 function send(owner: WebContents, channel: string, value: string | number): void {
-  if (!owner.isDestroyed()) owner.send(channel, value)
+  try {
+    if (!owner.isDestroyed()) owner.send(channel, value)
+  } catch {
+    // WebContents was destroyed during event dispatch
+  }
 }
 
 function killProcessTree(pid: number, signal: NodeJS.Signals | string = 'SIGTERM'): void {
   if (!pid) return
   if (process.platform !== 'win32') {
     try {
+      // First try killing the entire process group
       process.kill(-pid, signal)
     } catch {
+      try {
+        // Kill direct child processes to prevent orphaned workers
+        execFile('pkill', [`-${signal}`, '-P', String(pid)], () => {})
+      } catch {
+        // ignore
+      }
       try {
         process.kill(pid, signal)
       } catch {
@@ -52,9 +64,43 @@ function killProcessTree(pid: number, signal: NodeJS.Signals | string = 'SIGTERM
     }
   } else {
     try {
-      process.kill(pid, signal)
+      exec(`taskkill /F /T /PID ${pid}`, () => {})
     } catch {
-      // Process already terminated
+      try {
+        process.kill(pid, signal)
+      } catch {
+        // Process already terminated
+      }
+    }
+  }
+}
+
+function killProcessTreeSync(pid: number): void {
+  if (!pid || pid <= 1) return
+  if (process.platform !== 'win32') {
+    try {
+      process.kill(-pid, 'SIGKILL')
+    } catch {
+      try {
+        execFileSync('pkill', ['-9', '-P', String(pid)], { stdio: 'ignore' })
+      } catch {
+        // ignore if no child processes
+      }
+      try {
+        process.kill(pid, 'SIGKILL')
+      } catch {
+        // already terminated
+      }
+    }
+  } else {
+    try {
+      execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore' })
+    } catch {
+      try {
+        process.kill(pid, 'SIGKILL')
+      } catch {
+        // already terminated
+      }
     }
   }
 }
@@ -62,6 +108,7 @@ function killProcessTree(pid: number, signal: NodeJS.Signals | string = 'SIGTERM
 function stop(id: string, owner?: WebContents, force = false): void {
   const entry = processes.get(id)
   if (!entry || (owner && entry.owner !== owner)) return
+  ipcMain.removeAllListeners(`pty-in-${id}`)
   processes.delete(id) // Retire first so a late exit cannot remove a replacement.
   retiring.add(entry)
   if (entry.bootstrap) clearTimeout(entry.bootstrap)
@@ -82,7 +129,7 @@ export function emergencyCleanupSync(): void {
   for (const entry of processes.values()) {
     try {
       if (entry.bootstrap) clearTimeout(entry.bootstrap)
-      killProcessTree(entry.process.pid, 'SIGKILL')
+      killProcessTreeSync(entry.process.pid)
       entry.process.kill('SIGKILL')
     } catch {
       // ignore
@@ -90,7 +137,7 @@ export function emergencyCleanupSync(): void {
   }
   for (const entry of retiring) {
     try {
-      killProcessTree(entry.process.pid, 'SIGKILL')
+      killProcessTreeSync(entry.process.pid)
       entry.process.kill('SIGKILL')
     } catch {
       // ignore
@@ -118,9 +165,50 @@ function start(
       'CLAUDE_CONFIG_DIR',
       'GEMINI_DIR',
       'GEMINI_CLI_DIR',
-      'ANTIGRAVITY_APP_DATA_DIR'
+      'ANTIGRAVITY_APP_DATA_DIR',
+      'JETSKI_APP_DATA_DIR'
     ]) {
       if (custom[key]) fs.mkdirSync(custom[key], { recursive: true })
+    }
+
+    // Auto-initialize Antigravity settings.json in isolated profile data directory
+    if (custom.ANTIGRAVITY_APP_DATA_DIR) {
+      try {
+        fs.mkdirSync(custom.ANTIGRAVITY_APP_DATA_DIR, { recursive: true })
+        const settingsPath = path.join(custom.ANTIGRAVITY_APP_DATA_DIR, 'settings.json')
+        const baseSettingsPath = path.join(os.homedir(), '.gemini', 'antigravity-cli', 'settings.json')
+        let baseConfig: Record<string, unknown> = {}
+        if (fs.existsSync(baseSettingsPath)) {
+          try {
+            baseConfig = JSON.parse(fs.readFileSync(baseSettingsPath, 'utf-8'))
+          } catch {
+            /* ignore */
+          }
+        }
+        let existingConfig: Record<string, unknown> = {}
+        if (fs.existsSync(settingsPath)) {
+          try {
+            existingConfig = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'))
+          } catch {
+            /* ignore */
+          }
+        }
+        const mergedConfig: Record<string, unknown> = {
+          ...baseConfig,
+          ...existingConfig
+        }
+        if (custom.AGY_ACCOUNT) {
+          mergedConfig.account = custom.AGY_ACCOUNT
+          mergedConfig.selectedAuthType = 'google_account'
+        } else if (!existingConfig.account) {
+          // Do not inherit base global account into an isolated profile without explicit config
+          delete mergedConfig.account
+          delete mergedConfig.selectedAuthType
+        }
+        fs.writeFileSync(settingsPath, JSON.stringify(mergedConfig, null, 2), 'utf-8')
+      } catch {
+        /* ignore initialization failure */
+      }
     }
     const existingPath = (process.env.PATH || '/usr/bin:/bin:/usr/sbin:/sbin').split(path.delimiter)
     const extraPath = [
@@ -164,6 +252,18 @@ function start(
       bufferLength: 0
     }
     processes.set(id, entry)
+    // Dynamic channel backward compatibility:
+    const ptyInChannel = `pty-in-${id}`
+    const ptyInHandler = (_evt: unknown, data: string): void => {
+      if (typeof data === 'string') {
+        try {
+          child.write(data)
+        } catch {
+          // Process may have exited
+        }
+      }
+    }
+    ipcMain.on(ptyInChannel, ptyInHandler)
     child.onData((data) => {
       entry.buffer.push(data)
       entry.bufferLength += data.length
@@ -171,9 +271,14 @@ function start(
         const removed = entry.buffer.shift()
         if (removed) entry.bufferLength -= removed.length
       }
+      if (entry.bufferLength > 100_000 && entry.buffer.length === 1) {
+        entry.buffer[0] = entry.buffer[0].slice(-100_000)
+        entry.bufferLength = 100_000
+      }
       if (processes.get(id) === entry) send(owner, `pty-out-${id}`, data)
     })
     child.onExit(({ exitCode }) => {
+      ipcMain.removeAllListeners(`pty-in-${id}`)
       entry.markExited()
       retiring.delete(entry)
       if (processes.get(id) !== entry) return
@@ -264,7 +369,7 @@ export function initPtyManager(): void {
     ) => {
       const existing = processes.get(id)
       if (existing && existing.owner !== event.sender) return
-      stop(id, event.sender)
+      stop(id, event.sender, true)
       start(event.sender, id, name, cwd, command, env)
     }
   )
@@ -284,7 +389,11 @@ export function initPtyManager(): void {
     }
     const entry = processes.get(id)
     if (entry?.owner === event.sender && typeof data === 'string') {
-      entry.process.write(data)
+      try {
+        entry.process.write(data)
+      } catch {
+        // Process may have exited or PTY closed
+      }
     }
   })
   ipcMain.on('pty-resize', (event, id: string, cols: number, rows: number) => {
@@ -296,7 +405,11 @@ export function initPtyManager(): void {
       cols > 0 &&
       rows > 0
     ) {
-      entry.process.resize(cols, rows)
+      try {
+        entry.process.resize(cols, rows)
+      } catch {
+        // Process may have exited or PTY closed
+      }
     }
   })
   ipcMain.on('pty-kill', (event, id: string) => stop(id, event.sender))
@@ -337,6 +450,12 @@ export function initPtyManager(): void {
     }
   )
   ipcMain.on('pty-request-history', (event, id: string) => {
+    const entry = processes.get(id)
+    if (entry && entry.buffer.length > 0) {
+      send(event.sender, `pty-history-${id}`, entry.buffer.join(''))
+    }
+  })
+  ipcMain.on('pty-reconnect', (event, id: string) => {
     const entry = processes.get(id)
     if (entry && entry.buffer.length > 0) {
       send(event.sender, `pty-history-${id}`, entry.buffer.join(''))

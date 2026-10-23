@@ -47,7 +47,7 @@ export default function AttentionNotificationToast(): JSX.Element | null {
   })()
 
   const handleApprove = (): void => {
-    window.electron.ipcRenderer.send(`pty-in-${target.id}`, 'y\r')
+    window.electron.ipcRenderer.send('pty-write', target.id, 'y\r')
     dispatch({
       type: 'UPDATE_TERMINAL_AGENT_STATE',
       id: target.id,
@@ -61,7 +61,7 @@ export default function AttentionNotificationToast(): JSX.Element | null {
   }
 
   const handleDeny = (): void => {
-    window.electron.ipcRenderer.send(`pty-in-${target.id}`, 'n\r')
+    window.electron.ipcRenderer.send('pty-write', target.id, 'n\r')
     dispatch({
       type: 'UPDATE_TERMINAL_AGENT_STATE',
       id: target.id,
@@ -93,7 +93,7 @@ export default function AttentionNotificationToast(): JSX.Element | null {
         position: 'fixed',
         top: '56px',
         right: '20px',
-        zIndex: 900,
+        zIndex: 9999,
         width: '380px',
         maxWidth: 'calc(100vw - 40px)',
         backgroundColor: '#161922',

@@ -50,10 +50,11 @@ body {
   border-color: #344159;
 }
 .mode-button {
-  min-height: 36px;
-  padding-inline: 15px;
-  font-size: 13px;
-  font-weight: 640;
+  min-height: 28px;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 560;
 }
 .mode-button.is-active {
   border-color: #536ca6;
@@ -1002,18 +1003,22 @@ body.resizing-active .xterm {
   pointer-events: none !important;
 }
 
-/* React-Grid-Layout Resizing Grips - highly visible, clean, modern */
+/* React-Grid-Layout Resizing Grips - highly visible, clean, modern free-resizing */
 .react-resizable-handle {
   position: absolute;
+  z-index: 100;
+  transition: background-color 0.15s ease;
+}
+
+.react-resizable-handle-se {
   width: 20px;
   height: 20px;
   bottom: 0;
   right: 0;
   cursor: se-resize;
-  z-index: 100;
 }
 
-.react-resizable-handle::after {
+.react-resizable-handle-se::after {
   content: '';
   position: absolute;
   right: 5px;
@@ -1026,10 +1031,54 @@ body.resizing-active .xterm {
   transition: all 0.2s ease;
 }
 
-.react-resizable-handle:hover::after {
+.react-resizable-handle-se:hover::after {
   border-color: #ffffff;
   box-shadow: 2px 2px 8px rgba(139, 174, 255, 0.9);
   transform: scale(1.15);
+}
+
+.react-resizable-handle-e {
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+}
+
+.react-resizable-handle-w {
+  top: 0;
+  left: -4px;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+}
+
+.react-resizable-handle-s {
+  left: 0;
+  right: 0;
+  bottom: -4px;
+  height: 8px;
+  cursor: row-resize;
+}
+
+.react-resizable-handle-n {
+  left: 0;
+  right: 0;
+  top: -4px;
+  height: 8px;
+  cursor: row-resize;
+}
+
+.react-resizable-handle-e:hover,
+.react-resizable-handle-w:hover {
+  background: rgba(117, 157, 255, 0.35);
+  box-shadow: 0 0 10px rgba(117, 157, 255, 0.5);
+}
+
+.react-resizable-handle-s:hover,
+.react-resizable-handle-n:hover {
+  background: rgba(117, 157, 255, 0.35);
+  box-shadow: 0 0 10px rgba(117, 157, 255, 0.5);
 }
 
 /* Pane Cycling Highlight Pulse (Cmd + ] / Cmd + [) */
@@ -1385,7 +1434,18 @@ body.resizing-active .xterm {
   color: #94a3b8;
   font-size: 12px;
   cursor: pointer;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
   transition: all 0.18s ease;
+}
+
+.header-search-trigger .search-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .header-search-trigger:hover {

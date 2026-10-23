@@ -4,6 +4,7 @@ import { BrowserWindow } from 'electron'
 
 export interface OAuthCallbackPayload {
   providerId: string
+  accountId?: string
   code?: string
   token?: string
   email?: string
@@ -15,8 +16,9 @@ let server: http.Server | null = null
 let activePort = 19842
 let onCallbackListener: ((payload: OAuthCallbackPayload) => void) | null = null
 
-export function getOAuthLoopbackUrl(providerId = 'gemini'): string {
-  return `http://127.0.0.1:${activePort}/oauth/callback?provider=${encodeURIComponent(providerId)}`
+export function getOAuthLoopbackUrl(providerId = 'gemini', accountId?: string): string {
+  const accountQuery = accountId ? `&accountId=${encodeURIComponent(accountId)}` : ''
+  return `http://127.0.0.1:${activePort}/oauth/callback?provider=${encodeURIComponent(providerId)}${accountQuery}`
 }
 
 export function setOAuthCallbackListener(listener: (payload: OAuthCallbackPayload) => void): void {
@@ -45,6 +47,7 @@ export function startOAuthServer(mainWindowGetter: () => BrowserWindow | null): 
               reqUrl.searchParams.get('provider') ||
               reqUrl.searchParams.get('providerId') ||
               'gemini'
+            const accountId = reqUrl.searchParams.get('accountId') || undefined
             const code = reqUrl.searchParams.get('code') || undefined
             const token =
               reqUrl.searchParams.get('token') ||
@@ -58,6 +61,7 @@ export function startOAuthServer(mainWindowGetter: () => BrowserWindow | null): 
 
             const payload: OAuthCallbackPayload = {
               providerId,
+              accountId,
               code,
               token,
               email,

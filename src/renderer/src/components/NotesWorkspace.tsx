@@ -34,12 +34,11 @@ function readNotes(): Note[] {
   return [makeNote()]
 }
 
-function formatIst(timestamp: number): string {
-  return `${new Intl.DateTimeFormat('en-IN', {
-    timeZone: 'Asia/Kolkata',
+function formatTimestamp(timestamp: number): string {
+  return new Intl.DateTimeFormat(undefined, {
     dateStyle: 'medium',
     timeStyle: 'short'
-  }).format(timestamp)} IST`
+  }).format(timestamp)
 }
 
 export default function NotesWorkspace(): JSX.Element {
@@ -197,7 +196,7 @@ export default function NotesWorkspace(): JSX.Element {
               >
                 <strong>{note.title || 'Untitled note'}</strong>
                 <span>{note.content.trim().split('\n').find(Boolean) || 'Start writing…'}</span>
-                <small>{formatIst(note.updatedAt)}</small>
+                <small>{formatTimestamp(note.updatedAt)}</small>
               </button>
             ))
           ) : (
@@ -250,7 +249,7 @@ export default function NotesWorkspace(): JSX.Element {
             maxLength={120}
           />
           <div className="note-meta">
-            <FileText size={14} /> Edited {selected ? formatIst(selected.updatedAt) : 'now'}{' '}
+            <FileText size={14} /> Edited {selected ? formatTimestamp(selected.updatedAt) : 'now'}{' '}
             <span>·</span> {words} words
           </div>
           <label className="sr-only" htmlFor="note-content">

@@ -12,7 +12,6 @@ import {
   Star,
   Columns2,
   SplitSquareHorizontal,
-  SplitSquareVertical,
   ChevronDown,
   Terminal as TermIcon,
   Check,
@@ -20,13 +19,16 @@ import {
   CornerDownLeft,
   Globe,
   AlertCircle,
+  AlertTriangle,
   Sparkles,
   Copy,
   MoreHorizontal,
   GitBranch,
   Zap,
   Key,
-  FileCode
+  Edit2,
+  MessageSquareQuote,
+  Send
 } from 'lucide-react'
 import {
   AIAccount,
@@ -40,6 +42,7 @@ import {
   type AgentDetectionResult
 } from '../utils/agent-state-detector'
 import EnvInspectorModal from './EnvInspectorModal'
+import { SubscriptionBadge } from './SubscriptionBadge'
 import type { GitBranchInfo } from '../../../preload'
 
 interface TerminalPaneProps {
@@ -72,6 +75,8 @@ interface TerminalPaneProps {
   onMaximize?: () => void
   onDock?: () => void
   onClose: () => void
+  onRename?: (newName: string) => void
+  onSendMessage?: (targetId: string, message: string) => boolean | Promise<boolean>
   onAccountChange?: (
     accountId: string | undefined,
     providerId: string,
@@ -95,6 +100,8 @@ export default function TerminalPane({
   onMaximize,
   onDock,
   onClose,
+  onRename,
+  onSendMessage,
   onAccountChange
 }: TerminalPaneProps): JSX.Element {
   const { state, dispatch } = useApp()
@@ -112,6 +119,29 @@ export default function TerminalPane({
   const [showResizeMenu, setShowResizeMenu] = useState(false)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
   const [selectedAccountId, setSelectedAccountId] = useState<string | 'all'>(accountId || 'all')
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false)
+
+  useEffect(() => {
+    if (!showCloseConfirm) return
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        setShowCloseConfirm(false)
+      } else if (e.key === 'Enter') {
+        e.stopPropagation()
+        setShowCloseConfirm(false)
+        handleClose()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [showCloseConfirm])
+
+  useEffect(() => {
+    if (accountId && accountId !== selectedAccountId) {
+      setSelectedAccountId(accountId)
+    }
+  }, [accountId])
   const [accountOverride, setAccountOverride] = useState(false)
   const [rateLimitPaused, setRateLimitPaused] = useState<{
     message: string
@@ -130,7 +160,7 @@ export default function TerminalPane({
   }))
   const [terminalFontSize, setTerminalFontSize] = useState<number>(() => {
     const saved = localStorage.getItem('nexus-terminal-font-size')
-    return saved ? Math.max(10, Math.min(24, parseFloat(saved))) : 13.5
+    return saved ? Math.max(10, Math.min(28, parseFloat(saved))) : 14
   })
   const stdoutBufferRef = useRef<string>('')
   const lastNotifiedStatusRef = useRef<string>('')
@@ -141,6 +171,105 @@ export default function TerminalPane({
   const [showMoreMenu, setShowMoreMenu] = useState(false)
   const [copiedPath, setCopiedPath] = useState(false)
   const moreMenuRef = useRef<HTMLDivElement>(null)
+
+  const [isEditingName, setIsEditingName] = useState(false)
+  const [nameDraft, setNameDraft] = useState(name)
+  const [showSpeakDock, setShowSpeakDock] = useState(false)
+  const [targetTerminalId, setTargetTerminalId] = useState<string>('')
+  const [speakMessage, setSpeakMessage] = useState<string>('')
+  const [speakFeedback, setSpeakFeedback] = useState<string | null>(null)
+
+  const otherTerminals = useMemo(
+    () => state.terminals.filter((t) => t.id !== id),
+    [state.terminals, id]
+  )
+
+  useEffect(() => {
+    setNameDraft(name)
+  }, [name])
+
+  useEffect(() => {
+    if (showSpeakDock && !targetTerminalId && otherTerminals.length > 0) {
+      setTargetTerminalId(otherTerminals[0].id)
+    }
+  }, [showSpeakDock, targetTerminalId, otherTerminals])
+
+  const getLastTerminalLines = (count = 20): string => {
+    const term = termInstanceRef.current
+    if (!term) return ''
+    try {
+      const buffer = term.buffer.active
+      const lines: string[] = []
+      const end = buffer.baseY + buffer.cursorY
+      const start = Math.max(0, end - count)
+      for (let i = start; i <= end; i++) {
+        const line = buffer.getLine(i)
+        if (line) lines.push(line.translateToString(true))
+      }
+      return lines.join('\n').trim()
+    } catch {
+      return ''
+    }
+  }
+
+  const handleSendSpeak = async (): Promise<void> => {
+    const msg = speakMessage.trim()
+    if (!msg || !targetTerminalId) return
+    const target = otherTerminals.find((t) => t.id === targetTerminalId)
+    if (!target) return
+
+    const formattedPrompt = msg.endsWith('\r') ? msg : `${msg}\r`
+    if (onSendMessage) {
+      await onSendMessage(targetTerminalId, formattedPrompt)
+    } else {
+      window.electron.ipcRenderer.send('pty-write', targetTerminalId, formattedPrompt)
+    }
+
+    if (termInstanceRef.current) {
+      const preview = msg.length > 80 ? `${msg.slice(0, 77)}...` : msg
+      termInstanceRef.current.write(
+        `\r\n\x1b[35m📤 [Message Sent to ${target.name}]:\x1b[0m \x1b[90m${preview}\x1b[0m\r\n`
+      )
+    }
+
+    setSpeakFeedback(`Message delivered to ${target.name}`)
+    setTimeout(() => setSpeakFeedback(null), 2500)
+    setSpeakMessage('')
+  }
+
+  const handlePipeOutput = (): void => {
+    const lastLines = getLastTerminalLines(25)
+    if (!lastLines) return
+    setSpeakMessage((prev) => {
+      const prefix = `[Context from ${name}]:\n${lastLines}`
+      return prev ? `${prev}\n\n${prefix}` : prefix
+    })
+  }
+
+  const handleSendHandoffToSession = async (): Promise<void> => {
+    if (!targetTerminalId) return
+    const target = otherTerminals.find((t) => t.id === targetTerminalId)
+    if (!target) return
+    try {
+      const handoff = await window.api.generateHandoffState(
+        cwd,
+        name,
+        `Inter-session task handoff to ${target.name}`
+      )
+      if (!handoff.success) throw new Error('Could not generate handoff')
+      window.electron.ipcRenderer.send('pty-write', targetTerminalId, `${handoff.prompt}\r`)
+      if (termInstanceRef.current) {
+        termInstanceRef.current.write(
+          `\r\n\x1b[32m✔ [Handoff Delivered to ${target.name}]: ${handoff.handoffPath}\x1b[0m\r\n`
+        )
+      }
+      setSpeakFeedback(`Handoff delivered to ${target.name}`)
+      setTimeout(() => setSpeakFeedback(null), 2500)
+    } catch (err) {
+      setSpeakFeedback(err instanceof Error ? err.message : 'Handoff failed')
+      setTimeout(() => setSpeakFeedback(null), 3000)
+    }
+  }
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent): void => {
@@ -221,11 +350,15 @@ export default function TerminalPane({
   // Synchronize terminal font zoom across all open panes
   useEffect(() => {
     const handleZoomEvent = (e: Event): void => {
-      const detail = (e as CustomEvent<{ delta?: number; reset?: boolean }>).detail
+      const detail = (e as CustomEvent<{ delta?: number; reset?: boolean; action?: 'in' | 'out' | 'reset' }>).detail
       setTerminalFontSize((prev) => {
         let next = prev
-        if (detail.reset) {
+        if (detail.reset || detail.action === 'reset') {
           next = 13.5
+        } else if (detail.action === 'in') {
+          next = Math.max(10, Math.min(24, prev + 1))
+        } else if (detail.action === 'out') {
+          next = Math.max(10, Math.min(24, prev - 1))
         } else if (typeof detail.delta === 'number') {
           next = Math.max(10, Math.min(24, prev + detail.delta))
         }
@@ -254,9 +387,11 @@ export default function TerminalPane({
           const auth = await window.api.getCLIAccountAuth(account)
           return auth.loggedIn && auth.authMethod !== 'profile-detected' && auth.email
             ? ([account.id, auth.email] as const)
-            : null
+            : account.googleEmail
+              ? ([account.id, account.googleEmail] as const)
+              : null
         } catch {
-          return null
+          return account.googleEmail ? ([account.id, account.googleEmail] as const) : null
         }
       })
     ).then((entries) => {
@@ -267,28 +402,39 @@ export default function TerminalPane({
     }
   }, [state.aiAccounts])
 
-  // Keep ordinary shells free of account overrides. A saved launch environment
-  // is used only until the user explicitly chooses another profile.
+  // Keep ordinary shells free of account overrides. When an account is designated,
+  // ensure its environment credentials are used.
   const activeEnv = useMemo((): Record<string, string> => {
-    // A newly created pane may carry a custom launch environment. Preserve it until
-    // the user explicitly switches profiles; then use only the selected profile.
-    if (!accountOverride && env && Object.keys(env).length > 0) return env
     if (selectedAccountId && selectedAccountId !== 'all') {
       const acc = state.aiAccounts.find((a) => a.id === selectedAccountId)
       if (acc) {
         return getAccountEnv(acc)
       }
-    } else if (providerId && providerId !== 'local' && providerId !== 'web') {
-      const matchingAcc = state.aiAccounts.find(
-        (a) =>
-          a.providerId === providerId ||
-          (providerId.startsWith('claude') && a.providerId === 'claude') ||
-          (providerId.startsWith('chatgpt') && a.providerId === 'chatgpt') ||
-          ((providerId.startsWith('gemini') ||
-            providerId.startsWith('agy') ||
-            providerId.startsWith('antigravity')) &&
-            a.providerId === 'gemini')
-      )
+    }
+    if (!accountOverride && env && Object.keys(env).length > 0) return env
+    if (providerId && providerId !== 'local' && providerId !== 'web') {
+      const matchingAcc =
+        state.aiAccounts.find(
+          (a) =>
+            a.isDefault &&
+            (a.providerId === providerId ||
+              (providerId.startsWith('claude') && a.providerId === 'claude') ||
+              (providerId.startsWith('chatgpt') && a.providerId === 'chatgpt') ||
+              ((providerId.startsWith('gemini') ||
+                providerId.startsWith('agy') ||
+                providerId.startsWith('antigravity')) &&
+                a.providerId === 'gemini'))
+        ) ||
+        state.aiAccounts.find(
+          (a) =>
+            a.providerId === providerId ||
+            (providerId.startsWith('claude') && a.providerId === 'claude') ||
+            (providerId.startsWith('chatgpt') && a.providerId === 'chatgpt') ||
+            ((providerId.startsWith('gemini') ||
+              providerId.startsWith('agy') ||
+              providerId.startsWith('antigravity')) &&
+              a.providerId === 'gemini')
+        )
       if (matchingAcc) {
         return getAccountEnv(matchingAcc)
       }
@@ -303,8 +449,6 @@ export default function TerminalPane({
   const [gitInfo, setGitInfo] = useState<GitBranchInfo | null>(null)
   const [copiedBranch, setCopiedBranch] = useState(false)
   const [showEnvModal, setShowEnvModal] = useState(false)
-  const [showSnippetsMenu, setShowSnippetsMenu] = useState(false)
-  const snippetsMenuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!cwd) return
@@ -344,7 +488,6 @@ export default function TerminalPane({
   }
 
   const insertSnippet = (snippet: string, execute = true): void => {
-    setShowSnippetsMenu(false)
     setShowMoreMenu(false)
     const toSend = execute ? `${snippet}\r` : snippet
     window.electron.ipcRenderer.send('pty-write', id, toSend)
@@ -353,22 +496,56 @@ export default function TerminalPane({
 
   const provider = getProvider(providerId)
 
-  // Clipboard paste helper for tokens and terminal input
+  // Clipboard paste helper for tokens, text, and screenshots/images
   const pasteFromClipboard = async (andSubmit = false): Promise<void> => {
     try {
-      const text = await window.api.readClipboardText()
+      let text = await window.api.readClipboardText().catch(() => '')
       if (!text || !text.trim()) {
+        try {
+          text = await navigator.clipboard.readText()
+        } catch {
+          // ignore clipboard read errors
+        }
+      }
+
+      // If no text, check if clipboard contains an image (screenshot, copied graphic)
+      if (!text || !text.trim()) {
+        try {
+          const imagePath = await window.api.readClipboardImage()
+          if (imagePath) {
+            const fileName = imagePath.split('/').pop() || 'image.png'
+            const toSend = andSubmit ? `"${imagePath}"\r` : `"${imagePath}" `
+            window.electron.ipcRenderer.send('pty-write', id, toSend)
+            termInstanceRef.current?.focus()
+            setPasteFeedback({ text: `Pasted Image (${fileName}) 🖼️`, success: true })
+            setTimeout(() => setPasteFeedback(null), 2000)
+            return
+          }
+        } catch {
+          // ignore image paste error
+        }
+
         setPasteFeedback({ text: 'Empty', success: false })
         setTimeout(() => setPasteFeedback(null), 1500)
         return
       }
 
-      // If submitting directly (e.g. auth token prompt), trim whitespace and append \r
-      const cleanText = andSubmit ? `${text.trim()}\r` : text
-      window.electron.ipcRenderer.send('pty-write', id, cleanText)
+      // Normalize multiline cURL and raw shell newlines for Unix PTY execution
+      let textToSend = text
+      if (text.includes('curl ') && text.includes('\\')) {
+        textToSend = text.replace(/\\\r?\n\s*/g, ' ')
+      } else {
+        textToSend = text.replace(/\r?\n/g, '\r')
+      }
+
+      if (andSubmit) {
+        textToSend = `${textToSend.trim()}\r`
+      }
+
+      window.electron.ipcRenderer.send('pty-write', id, textToSend)
       termInstanceRef.current?.focus()
 
-      const charCount = text.trim().length
+      const charCount = text.length
       setPasteFeedback({
         text: andSubmit ? 'Sent ↵' : `Pasted (${charCount}c)`,
         success: true
@@ -471,14 +648,20 @@ export default function TerminalPane({
   useEffect(() => {
     if (!terminalRef.current) return
 
+    const initialWidth = terminalRef.current.clientWidth || 600
+    let initialFontSize = terminalFontSize
+    if (initialWidth < 450) initialFontSize = Math.min(terminalFontSize, 10)
+    else if (initialWidth < 560) initialFontSize = Math.min(terminalFontSize, 11)
+    else if (initialWidth < 660) initialFontSize = Math.min(terminalFontSize, 12)
+
     const term = new Terminal({
       cursorBlink: true,
       cursorStyle: 'bar',
       fontFamily:
         "'JetBrains Mono', 'SF Mono', Menlo, Monaco, 'Cascadia Code', 'Fira Code', ui-monospace, monospace",
-      fontSize: terminalFontSize,
-      lineHeight: 1.35,
-      letterSpacing: 0,
+      fontSize: initialFontSize,
+      lineHeight: 1.4,
+      letterSpacing: 0.3,
       theme: {
         background: '#101114',
         foreground: '#f0f6fc',
@@ -529,19 +712,7 @@ export default function TerminalPane({
         }
         // Paste: Cmd+V / Ctrl+V
         if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'v') {
-          window.api
-            .readClipboardText()
-            .then((clipText) => {
-              if (clipText) {
-                // If it's a multiline cURL command with trailing backslashes, normalize for flawless shell execution
-                const textToSend =
-                  clipText.includes('curl ') && clipText.includes('\\')
-                    ? clipText.replace(/\\\r?\n\s*/g, ' ')
-                    : clipText
-                window.electron.ipcRenderer.send('pty-write', id, textToSend)
-              }
-            })
-            .catch(() => {})
+          void pasteFromClipboard(false)
           return false
         }
         // Copy: Cmd+C / Ctrl+C when selection exists
@@ -572,6 +743,48 @@ export default function TerminalPane({
     }
     termContainer.addEventListener('click', focusTerminal)
     termContainer.addEventListener('mousedown', focusTerminal)
+    const onPaste = async (e: ClipboardEvent): Promise<void> => {
+      e.preventDefault()
+      // Check for pasted image files/blobs in clipboard items
+      const items = e.clipboardData?.items
+      if (items) {
+        for (let i = 0; i < items.length; i++) {
+          if (items[i].type.startsWith('image/')) {
+            const file = items[i].getAsFile()
+            if (file) {
+              try {
+                const arrayBuf = await file.arrayBuffer()
+                const savedPath = await window.api.saveClipboardImageBuffer(new Uint8Array(arrayBuf))
+                if (savedPath) {
+                  const fileName = savedPath.split('/').pop() || 'image.png'
+                  window.electron.ipcRenderer.send('pty-write', id, `"${savedPath}" `)
+                  term.focus()
+                  setPasteFeedback({ text: `Pasted Image (${fileName}) 🖼️`, success: true })
+                  setTimeout(() => setPasteFeedback(null), 2000)
+                  return
+                }
+              } catch {
+                // fall through to text paste
+              }
+            }
+          }
+        }
+      }
+
+      const text = e.clipboardData?.getData('text/plain')
+      if (text && text.trim()) {
+        const textToSend =
+          text.includes('curl ') && text.includes('\\')
+            ? text.replace(/\\\r?\n\s*/g, ' ')
+            : text.replace(/\r?\n/g, '\r')
+        window.electron.ipcRenderer.send('pty-write', id, textToSend)
+        setPasteFeedback({ text: `Pasted (${text.length}c)`, success: true })
+        setTimeout(() => setPasteFeedback(null), 1500)
+      } else {
+        void pasteFromClipboard(false)
+      }
+    }
+    termContainer.addEventListener('paste', onPaste)
     if (term.textarea) {
       term.textarea.addEventListener('focus', () => {
         dispatch({ type: 'SET_ACTIVE_SESSION', id })
@@ -580,12 +793,23 @@ export default function TerminalPane({
 
     // Slight delay for layout transitions before fitting & spawning
     const timer = setTimeout(() => {
+      if (terminalRef.current && terminalRef.current.clientWidth) {
+        const width = terminalRef.current.clientWidth
+        if (width < 450) term.options.fontSize = Math.min(terminalFontSize, 10)
+        else if (width < 560) term.options.fontSize = Math.min(terminalFontSize, 11)
+        else if (width < 660) term.options.fontSize = Math.min(terminalFontSize, 12)
+      }
       fitAddon.fit()
       term.focus()
       window.electron.ipcRenderer.send('pty-create', id, name, cwd, command, activeEnvRef.current)
       if (Object.keys(activeEnvRef.current).length > 0) {
+        const profileDir =
+          activeEnvRef.current.ANTIGRAVITY_APP_DATA_DIR ||
+          activeEnvRef.current.CLAUDE_CONFIG_DIR ||
+          activeEnvRef.current.CODEX_HOME ||
+          ''
         term.write(
-          `\x1b[36m⚡ [AI Credentials Active]: ${Object.keys(activeEnvRef.current).join(', ')}\x1b[0m\r\n`
+          `\x1b[36m⚡ [AI Credentials Active]: ${Object.keys(activeEnvRef.current).join(', ')}${profileDir ? ` (${profileDir})` : ''}\x1b[0m\r\n`
         )
       }
     }, 120)
@@ -707,13 +931,38 @@ export default function TerminalPane({
     window.electron.ipcRenderer.on(`pty-error-${id}`, onErrorHandler)
     window.electron.ipcRenderer.on(`pty-exit-${id}`, onExitHandler)
 
+    let resizeRaf: number | null = null
+    let lastCols = 0
+    let lastRows = 0
     const handleResize = (): void => {
-      try {
-        fitAddon.fit()
-        window.electron.ipcRenderer.send('pty-resize', id, term.cols, term.rows)
-      } catch {
-        /* ignore fit errors on unmounted containers */
-      }
+      if (resizeRaf !== null) cancelAnimationFrame(resizeRaf)
+      resizeRaf = requestAnimationFrame(() => {
+        try {
+          if (!terminalRef.current || !terminalRef.current.clientWidth || !terminalRef.current.clientHeight) return
+          const width = terminalRef.current.clientWidth
+          // Auto-adjust font size in narrow split panes so interactive TUIs (like Gemini/Antigravity CLI)
+          // maintain at least ~70 columns without garbled line wraps or broken status bars.
+          let targetFontSize = terminalFontSize
+          if (width < 450) {
+            targetFontSize = Math.min(terminalFontSize, 10)
+          } else if (width < 560) {
+            targetFontSize = Math.min(terminalFontSize, 11)
+          } else if (width < 660) {
+            targetFontSize = Math.min(terminalFontSize, 12)
+          }
+          if (term.options.fontSize !== targetFontSize) {
+            term.options.fontSize = targetFontSize
+          }
+          fitAddon.fit()
+          if (term.cols !== lastCols || term.rows !== lastRows) {
+            lastCols = term.cols
+            lastRows = term.rows
+            window.electron.ipcRenderer.send('pty-resize', id, term.cols, term.rows)
+          }
+        } catch {
+          /* ignore fit errors on unmounted containers */
+        }
+      })
     }
 
     window.addEventListener('resize', handleResize)
@@ -724,15 +973,18 @@ export default function TerminalPane({
     observer.observe(terminalRef.current)
 
     return () => {
+      if (resizeRaf !== null) cancelAnimationFrame(resizeRaf)
       clearTimeout(timer)
       if (detectionDebounceTimerRef.current) {
         clearTimeout(detectionDebounceTimerRef.current)
       }
       termContainer.removeEventListener('click', focusTerminal)
       termContainer.removeEventListener('mousedown', focusTerminal)
+      termContainer.removeEventListener('paste', onPaste)
       window.electron.ipcRenderer.removeAllListeners(`pty-out-${id}`)
       window.electron.ipcRenderer.removeAllListeners(`pty-error-${id}`)
       window.electron.ipcRenderer.removeAllListeners(`pty-exit-${id}`)
+      window.electron.ipcRenderer.removeAllListeners(`pty-history-${id}`)
       window.removeEventListener('resize', handleResize)
       observer.disconnect()
       try {
@@ -745,8 +997,29 @@ export default function TerminalPane({
       } catch {
         /* ignore */
       }
+      termInstanceRef.current = null
+      fitAddonRef.current = null
     }
   }, [id, name, cwd, command])
+
+  // Auto-reconnect terminal when system wakes from sleep or screen unlocks
+  useEffect(() => {
+    if (!window.api.onSystemResume) return
+    const unsubscribe = window.api.onSystemResume(() => {
+      const term = termInstanceRef.current
+      if (!term) return
+      // Brief delay lets PTY process re-settle after wake
+      setTimeout(() => {
+        try {
+          term.write('\r\n\x1b[33m⚡ System woke — reconnecting terminal…\x1b[0m\r\n')
+          window.electron.ipcRenderer.send('pty-reconnect', id)
+        } catch {
+          /* ignore */
+        }
+      }, 800)
+    })
+    return unsubscribe
+  }, [id])
 
   const handleClose = (): void => {
     window.electron.ipcRenderer.send('pty-kill', id)
@@ -802,8 +1075,13 @@ export default function TerminalPane({
     if (termInstanceRef.current) {
       termInstanceRef.current.clear()
       termInstanceRef.current.write(`\r\n\x1b[33m🔄 [Account Switched] Active: ${label}\x1b[0m\r\n`)
+      const profileDir =
+        newEnv.ANTIGRAVITY_APP_DATA_DIR ||
+        newEnv.CLAUDE_CONFIG_DIR ||
+        newEnv.CODEX_HOME ||
+        'Default'
       termInstanceRef.current.write(
-        `\x1b[32m✔ Spawning shell with isolated profile: ${Object.keys(newEnv).join(', ') || 'Default'}\x1b[0m\r\n\r\n`
+        `\x1b[32m✔ Spawning shell with isolated profile: ${label} (${profileDir})\x1b[0m\r\n\r\n`
       )
     }
 
@@ -841,19 +1119,19 @@ export default function TerminalPane({
         overflow: 'hidden',
         border:
           effectiveAgentStatus === 'waiting'
-            ? '1.5px solid #efbc69'
+            ? '1px solid #efbc69'
             : isActive
-              ? '1.5px solid #8baeff'
+              ? '1px solid #8baeff'
               : effectiveAgentStatus === 'working'
                 ? '1px solid rgba(139, 174, 255, 0.45)'
                 : '1px solid rgba(255, 255, 255, 0.08)',
         boxShadow:
           effectiveAgentStatus === 'waiting'
-            ? '0 0 18px rgba(239, 188, 105, 0.35)'
+            ? '0 0 0 1px #efbc69, 0 0 18px rgba(239, 188, 105, 0.35)'
             : isActive
-              ? '0 0 16px rgba(139, 174, 255, 0.28)'
+              ? '0 0 0 1px #8baeff, 0 0 16px rgba(139, 174, 255, 0.28)'
               : 'none',
-        transition: 'border 0.15s, box-shadow 0.15s'
+        transition: 'border-color 0.15s, box-shadow 0.15s'
       }}
     >
       {/* Pane Header */}
@@ -917,20 +1195,93 @@ export default function TerminalPane({
                     : 'Idle'
             }
           />
-          <span
-            style={{
-              fontWeight: 600,
-              letterSpacing: '0.4px',
-              fontSize: '12px',
-              whiteSpace: 'nowrap',
-              textOverflow: 'ellipsis',
-              overflow: 'hidden',
-              maxWidth: '120px'
-            }}
-            title={name}
-          >
-            {name}
-          </span>
+          {isEditingName ? (
+            <input
+              type="text"
+              autoFocus
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onBlur={() => {
+                setIsEditingName(false)
+                if (nameDraft.trim() && nameDraft.trim() !== name) {
+                  onRename?.(nameDraft.trim())
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  setIsEditingName(false)
+                  if (nameDraft.trim() && nameDraft.trim() !== name) {
+                    onRename?.(nameDraft.trim())
+                  }
+                } else if (e.key === 'Escape') {
+                  setIsEditingName(false)
+                  setNameDraft(name)
+                }
+              }}
+              style={{
+                fontSize: '12px',
+                fontWeight: 600,
+                padding: '1px 6px',
+                borderRadius: '4px',
+                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                border: '1px solid #8baeff',
+                color: '#fff',
+                outline: 'none',
+                width: '120px'
+              }}
+            />
+          ) : (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                maxWidth: '140px',
+                cursor: 'pointer'
+              }}
+              onDoubleClick={(e) => {
+                e.stopPropagation()
+                setIsEditingName(true)
+                setNameDraft(name)
+              }}
+              title="Double-click to rename session"
+            >
+              <span
+                style={{
+                  fontWeight: 600,
+                  letterSpacing: '0.4px',
+                  fontSize: '12px',
+                  whiteSpace: 'nowrap',
+                  textOverflow: 'ellipsis',
+                  overflow: 'hidden'
+                }}
+              >
+                {name}
+              </span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setIsEditingName(true)
+                  setNameDraft(name)
+                }}
+                title="Rename session"
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#666',
+                  cursor: 'pointer',
+                  padding: '1px',
+                  display: 'flex',
+                  alignItems: 'center'
+                }}
+                onMouseOver={(e) => (e.currentTarget.style.color = '#8baeff')}
+                onMouseOut={(e) => (e.currentTarget.style.color = '#666')}
+              >
+                <Edit2 size={10} />
+              </button>
+            </div>
+          )}
           {command && (
             <span
               style={{
@@ -960,7 +1311,7 @@ export default function TerminalPane({
                   : (() => {
                       const acc = state.aiAccounts.find((a) => a.id === selectedAccountId)
                       if (!acc) return 'Select Account'
-                      const email = cliAuthInfo[acc.id]
+                      const email = cliAuthInfo[acc.id] || acc.googleEmail
                       return `${acc.name}${email ? ` (${email})` : ''} · Directory: ${acc.cliConfigDir || 'Default'}`
                     })()
               }
@@ -1097,7 +1448,7 @@ export default function TerminalPane({
                           ? '💎'
                           : '🦁'
                   const isSelected = selectedAccountId === acc.id
-                  const email = cliAuthInfo[acc.id]
+                  const email = cliAuthInfo[acc.id] || acc.googleEmail
                   return (
                     <button
                       key={acc.id}
@@ -1129,6 +1480,7 @@ export default function TerminalPane({
                         <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                           <span>{icon}</span>
                           <span style={{ fontWeight: isSelected ? 600 : 400 }}>{acc.name}</span>
+                          <SubscriptionBadge type={acc.usage?.tier} />
                         </span>
                         {email && (
                           <span
@@ -1382,23 +1734,66 @@ export default function TerminalPane({
           }}
           ref={splitMenuRef}
         >
-          {/* Quick Dev Snippets */}
-          <div style={{ position: 'relative' }} ref={snippetsMenuRef}>
+          {/* Inter-terminal Speak toggle */}
+          <button
+            type="button"
+            onClick={() => setShowSpeakDock(!showSpeakDock)}
+            title="Speak to another terminal session"
+            style={{
+              background: showSpeakDock ? 'rgba(117,157,255,0.25)' : 'rgba(255,255,255,0.04)',
+              border: showSpeakDock
+                ? '1px solid rgba(117,157,255,0.45)'
+                : '1px solid rgba(255,255,255,0.1)',
+              color: showSpeakDock ? '#8baeff' : '#aaa',
+              cursor: 'pointer',
+              borderRadius: '4px',
+              padding: '2px 6px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              flexShrink: 0,
+              fontSize: '10.5px',
+              transition: 'all 0.15s'
+            }}
+            onMouseOver={(e) => {
+              e.currentTarget.style.color = '#fff'
+              e.currentTarget.style.borderColor = 'rgba(255,255,255,0.3)'
+            }}
+            onMouseOut={(e) => {
+              if (!showSpeakDock) {
+                e.currentTarget.style.color = '#aaa'
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'
+              }
+            }}
+          >
+            <MessageSquareQuote size={12} />
+            <span>Speak</span>
+          </button>
+
+          {/* Consolidated Actions Dropdown (Actions ▾) */}
+          <div style={{ position: 'relative' }} ref={moreMenuRef}>
             <button
-              onClick={() => setShowSnippetsMenu(!showSnippetsMenu)}
-              title="Quick Developer Snippets"
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                setShowMoreMenu(!showMoreMenu)
+              }}
+              title="Terminal actions, snippets, and tools"
+              aria-label="Actions"
               style={{
-                background: showSnippetsMenu ? 'rgba(117,157,255,0.2)' : 'transparent',
-                border: showSnippetsMenu
+                background: showMoreMenu ? 'rgba(117,157,255,0.2)' : 'rgba(255,255,255,0.04)',
+                border: showMoreMenu
                   ? '1px solid rgba(117,157,255,0.4)'
                   : '1px solid rgba(255,255,255,0.1)',
-                color: showSnippetsMenu ? '#8baeff' : '#888',
+                color: showMoreMenu ? '#8baeff' : '#aaa',
                 cursor: 'pointer',
                 borderRadius: '4px',
-                padding: '2px 5px',
+                padding: '2px 6px',
                 display: 'flex',
                 alignItems: 'center',
+                gap: '3px',
                 flexShrink: 0,
+                fontSize: '10.5px',
                 transition: 'all 0.15s'
               }}
               onMouseOver={(e) => {
@@ -1406,16 +1801,18 @@ export default function TerminalPane({
                 e.currentTarget.style.borderColor = 'rgba(255,255,255,0.3)'
               }}
               onMouseOut={(e) => {
-                if (!showSnippetsMenu) {
-                  e.currentTarget.style.color = '#888'
+                if (!showMoreMenu) {
+                  e.currentTarget.style.color = '#aaa'
                   e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'
                 }
               }}
             >
-              <FileCode size={11} />
+              <MoreHorizontal size={12} />
+              <span>Actions</span>
+              <ChevronDown size={9} />
             </button>
 
-            {showSnippetsMenu && (
+            {showMoreMenu && (
               <div
                 style={{
                   position: 'absolute',
@@ -1428,14 +1825,170 @@ export default function TerminalPane({
                   boxShadow: '0 12px 32px rgba(0,0,0,0.85)',
                   zIndex: 2000,
                   minWidth: '220px',
+                  maxHeight: '480px',
+                  overflowY: 'auto',
                   display: 'flex',
                   flexDirection: 'column',
                   gap: '2px'
                 }}
               >
+                {/* Section: Session Control */}
                 <div
                   style={{
-                    fontSize: '9.5px',
+                    fontSize: '9px',
+                    fontWeight: 700,
+                    color: '#8baeff',
+                    textTransform: 'uppercase',
+                    padding: '3px 8px'
+                  }}
+                >
+                  Session & Process
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowMoreMenu(false)
+                    setIsEditingName(true)
+                    setNameDraft(name)
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '5px 8px',
+                    background: 'transparent',
+                    border: 'none',
+                    borderRadius: '4px',
+                    color: '#eee',
+                    fontSize: '11px',
+                    cursor: 'pointer',
+                    textAlign: 'left'
+                  }}
+                  onMouseOver={(e) =>
+                    (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.06)')
+                  }
+                  onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                >
+                  <Edit2 size={11} color="#8baeff" /> Rename Session...
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowMoreMenu(false)
+                    setShowSpeakDock(true)
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '5px 8px',
+                    background: 'transparent',
+                    border: 'none',
+                    borderRadius: '4px',
+                    color: '#eee',
+                    fontSize: '11px',
+                    cursor: 'pointer',
+                    textAlign: 'left'
+                  }}
+                  onMouseOver={(e) =>
+                    (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.06)')
+                  }
+                  onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                >
+                  <MessageSquareQuote size={11} color="#8baeff" /> Speak to Session...
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowMoreMenu(false)
+                    restartTerminal()
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '5px 8px',
+                    background: 'transparent',
+                    border: 'none',
+                    borderRadius: '4px',
+                    color: '#eee',
+                    fontSize: '11px',
+                    cursor: 'pointer',
+                    textAlign: 'left'
+                  }}
+                  onMouseOver={(e) =>
+                    (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.06)')
+                  }
+                  onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                >
+                  <RotateCw size={11} color="#8baeff" /> Restart Terminal Session
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowMoreMenu(false)
+                    forceKillAndReset()
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '5px 8px',
+                    background: 'transparent',
+                    border: 'none',
+                    borderRadius: '4px',
+                    color: '#f87171',
+                    fontSize: '11px',
+                    cursor: 'pointer',
+                    textAlign: 'left'
+                  }}
+                  onMouseOver={(e) =>
+                    (e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.12)')
+                  }
+                  onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                >
+                  <Zap size={11} color="#f87171" /> Force Kill (kill -9) & Reset Shell
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowMoreMenu(false)
+                    termInstanceRef.current?.clear()
+                    window.electron.ipcRenderer.send('pty-write', id, 'clear\r')
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '5px 8px',
+                    background: 'transparent',
+                    border: 'none',
+                    borderRadius: '4px',
+                    color: '#eee',
+                    fontSize: '11px',
+                    cursor: 'pointer',
+                    textAlign: 'left'
+                  }}
+                  onMouseOver={(e) =>
+                    (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.06)')
+                  }
+                  onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                >
+                  <RotateCw size={11} color="#ff9aa4" /> Clear Terminal (⌘K)
+                </button>
+
+                <div
+                  style={{
+                    height: '1px',
+                    backgroundColor: 'rgba(255,255,255,0.08)',
+                    margin: '4px 0'
+                  }}
+                />
+
+                {/* Section: Quick Dev Snippets */}
+                <div
+                  style={{
+                    fontSize: '9px',
                     fontWeight: 700,
                     color: '#8baeff',
                     textTransform: 'uppercase',
@@ -1455,16 +2008,20 @@ export default function TerminalPane({
                 ].map((snip) => (
                   <button
                     key={snip.cmd}
-                    onClick={() => insertSnippet(snip.cmd)}
+                    type="button"
+                    onClick={() => {
+                      setShowMoreMenu(false)
+                      insertSnippet(snip.cmd)
+                    }}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
-                      padding: '5px 8px',
+                      padding: '4px 8px',
                       background: 'transparent',
                       border: 'none',
                       borderRadius: '4px',
-                      color: '#eee',
+                      color: '#ddd',
                       fontSize: '11px',
                       fontFamily: 'monospace',
                       cursor: 'pointer',
@@ -1479,131 +2036,26 @@ export default function TerminalPane({
                     <span style={{ fontSize: '9px', color: '#666' }}>↵</span>
                   </button>
                 ))}
-              </div>
-            )}
-          </div>
 
-          {/* Force Kill (kill -9) & Reset Shell */}
-          <button
-            onClick={forceKillAndReset}
-            title="⚡ Force Kill Runaway Processes (kill -9) & Reset Shell"
-            style={{
-              background: 'rgba(239, 68, 68, 0.08)',
-              border: '1px solid rgba(239, 68, 68, 0.25)',
-              color: '#f87171',
-              cursor: 'pointer',
-              borderRadius: '4px',
-              padding: '2px 5px',
-              display: 'flex',
-              alignItems: 'center',
-              flexShrink: 0,
-              transition: 'all 0.15s'
-            }}
-            onMouseOver={(e) => {
-              e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.22)'
-              e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.45)'
-            }}
-            onMouseOut={(e) => {
-              e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.08)'
-              e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.25)'
-            }}
-          >
-            <Zap size={11} />
-          </button>
-
-          {/* Restart Terminal */}
-          <button
-            onClick={restartTerminal}
-            title="Restart Terminal Session"
-            style={{
-              background: 'transparent',
-              border: '1px solid rgba(255,255,255,0.1)',
-              color: '#888',
-              cursor: 'pointer',
-              borderRadius: '4px',
-              padding: '2px 5px',
-              display: 'flex',
-              alignItems: 'center',
-              flexShrink: 0,
-              transition: 'all 0.15s'
-            }}
-            onMouseOver={(e) => {
-              e.currentTarget.style.color = '#fff'
-              e.currentTarget.style.borderColor = 'rgba(255,255,255,0.3)'
-            }}
-            onMouseOut={(e) => {
-              e.currentTarget.style.color = '#888'
-              e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'
-            }}
-          >
-            <RotateCw size={11} />
-          </button>
-
-          {/* More Actions Dropdown (•••) */}
-          <div style={{ position: 'relative' }} ref={moreMenuRef}>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                setShowMoreMenu(!showMoreMenu)
-              }}
-              title="Terminal Tools & Options"
-              style={{
-                background: showMoreMenu ? 'rgba(117,157,255,0.2)' : 'rgba(255,255,255,0.04)',
-                border: showMoreMenu
-                  ? '1px solid rgba(117,157,255,0.4)'
-                  : '1px solid rgba(255,255,255,0.1)',
-                color: showMoreMenu ? '#8baeff' : '#aaa',
-                cursor: 'pointer',
-                borderRadius: '4px',
-                padding: '2px 5px',
-                display: 'flex',
-                alignItems: 'center',
-                flexShrink: 0,
-                transition: 'all 0.15s'
-              }}
-              onMouseOver={(e) => {
-                e.currentTarget.style.color = '#fff'
-                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.3)'
-              }}
-              onMouseOut={(e) => {
-                if (!showMoreMenu) {
-                  e.currentTarget.style.color = '#aaa'
-                  e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'
-                }
-              }}
-            >
-              <MoreHorizontal size={12} />
-            </button>
-
-            {showMoreMenu && (
-              <div
-                style={{
-                  position: 'absolute',
-                  top: 'calc(100% + 4px)',
-                  right: 0,
-                  backgroundColor: '#161922',
-                  border: '1px solid rgba(117, 157, 255, 0.35)',
-                  borderRadius: '8px',
-                  padding: '6px',
-                  boxShadow: '0 12px 32px rgba(0,0,0,0.85)',
-                  zIndex: 2000,
-                  minWidth: '210px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '2px'
-                }}
-              >
                 <div
                   style={{
-                    fontSize: '9.5px',
+                    height: '1px',
+                    backgroundColor: 'rgba(255,255,255,0.08)',
+                    margin: '4px 0'
+                  }}
+                />
+
+                {/* Section: Clipboard & Input */}
+                <div
+                  style={{
+                    fontSize: '9px',
                     fontWeight: 700,
                     color: '#8baeff',
                     textTransform: 'uppercase',
                     padding: '3px 8px'
                   }}
                 >
-                  Quick Actions
+                  Clipboard & Input
                 </div>
                 <button
                   type="button"
@@ -1714,56 +2166,27 @@ export default function TerminalPane({
                 >
                   <Copy size={11} color="#8baeff" /> Copy All Output
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowMoreMenu(false)
-                    termInstanceRef.current?.clear()
-                    window.electron.ipcRenderer.send(`pty-in-${id}`, 'clear\r')
-                  }}
+
+                <div
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    padding: '5px 8px',
-                    background: 'transparent',
-                    border: 'none',
-                    borderRadius: '4px',
-                    color: '#eee',
-                    fontSize: '11px',
-                    cursor: 'pointer',
-                    textAlign: 'left'
+                    height: '1px',
+                    backgroundColor: 'rgba(255,255,255,0.08)',
+                    margin: '4px 0'
                   }}
-                  onMouseOver={(e) =>
-                    (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.06)')
-                  }
-                  onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                >
-                  <RotateCw size={11} color="#ff9aa4" /> Clear Terminal (⌘K)
-                </button>
-                <button
-                  type="button"
-                  onClick={forceKillAndReset}
+                />
+
+                {/* Section: Tools & Window */}
+                <div
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    padding: '5px 8px',
-                    background: 'transparent',
-                    border: 'none',
-                    borderRadius: '4px',
-                    color: '#f87171',
-                    fontSize: '11px',
-                    cursor: 'pointer',
-                    textAlign: 'left'
+                    fontSize: '9px',
+                    fontWeight: 700,
+                    color: '#8baeff',
+                    textTransform: 'uppercase',
+                    padding: '3px 8px'
                   }}
-                  onMouseOver={(e) =>
-                    (e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.12)')
-                  }
-                  onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                 >
-                  <Zap size={11} color="#f87171" /> Force Kill & Reset Shell (kill -9)
-                </button>
+                  Tools & Window
+                </div>
                 <button
                   type="button"
                   onClick={() => {
@@ -1790,6 +2213,90 @@ export default function TerminalPane({
                 >
                   <Key size={11} color="#8baeff" /> Inspect Environment Variables...
                 </button>
+                {onFocus && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowMoreMenu(false)
+                      onFocus()
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '5px 8px',
+                      background: 'transparent',
+                      border: 'none',
+                      borderRadius: '4px',
+                      color: '#ffc107',
+                      fontSize: '11px',
+                      cursor: 'pointer',
+                      textAlign: 'left'
+                    }}
+                    onMouseOver={(e) =>
+                      (e.currentTarget.style.backgroundColor = 'rgba(255,193,7,0.1)')
+                    }
+                    onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                  >
+                    <Star size={11} color="#ffc107" /> Focus Master in Split View
+                  </button>
+                )}
+                {onOpenWebBeside && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowMoreMenu(false)
+                      onOpenWebBeside()
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '5px 8px',
+                      background: 'transparent',
+                      border: 'none',
+                      borderRadius: '4px',
+                      color: '#4da6ff',
+                      fontSize: '11px',
+                      cursor: 'pointer',
+                      textAlign: 'left'
+                    }}
+                    onMouseOver={(e) =>
+                      (e.currentTarget.style.backgroundColor = 'rgba(77,166,255,0.1)')
+                    }
+                    onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                  >
+                    <Columns2 size={11} color="#4da6ff" /> Open AI Chat Beside (1-Screen Split)
+                  </button>
+                )}
+                {onDock && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowMoreMenu(false)
+                      onDock()
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '5px 8px',
+                      background: 'transparent',
+                      border: 'none',
+                      borderRadius: '4px',
+                      color: '#fbbf24',
+                      fontSize: '11px',
+                      cursor: 'pointer',
+                      textAlign: 'left'
+                    }}
+                    onMouseOver={(e) =>
+                      (e.currentTarget.style.backgroundColor = 'rgba(251,191,36,0.1)')
+                    }
+                    onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                  >
+                    <Pin size={11} color="#fbbf24" /> Dock Terminal to Sidebar
+                  </button>
+                )}
 
                 <div
                   style={{
@@ -1798,6 +2305,8 @@ export default function TerminalPane({
                     margin: '4px 0'
                   }}
                 />
+
+                {/* Section: Font Size */}
                 <div
                   style={{
                     display: 'flex',
@@ -1808,7 +2317,7 @@ export default function TerminalPane({
                 >
                   <span
                     style={{
-                      fontSize: '9.5px',
+                      fontSize: '9px',
                       fontWeight: 700,
                       color: '#8baeff',
                       textTransform: 'uppercase'
@@ -1888,7 +2397,7 @@ export default function TerminalPane({
                     />
                     <div
                       style={{
-                        fontSize: '9.5px',
+                        fontSize: '9px',
                         fontWeight: 700,
                         color: '#8baeff',
                         textTransform: 'uppercase',
@@ -1912,7 +2421,7 @@ export default function TerminalPane({
                         }}
                         style={{
                           width: '100%',
-                          padding: '5px 8px',
+                          padding: '4px 8px',
                           background: 'transparent',
                           border: 'none',
                           borderRadius: '4px',
@@ -1941,7 +2450,7 @@ export default function TerminalPane({
                 />
                 <div
                   style={{
-                    fontSize: '9.5px',
+                    fontSize: '9px',
                     fontWeight: 700,
                     color: '#8baeff',
                     textTransform: 'uppercase',
@@ -2000,7 +2509,7 @@ export default function TerminalPane({
                     }}
                     style={{
                       width: '100%',
-                      padding: '5px 8px',
+                      padding: '4px 8px',
                       background: 'transparent',
                       border: 'none',
                       borderRadius: '4px',
@@ -2023,6 +2532,8 @@ export default function TerminalPane({
               </div>
             )}
           </div>
+
+          {/* Provider Badge */}
           {provider && provider.id !== 'local' && (
             <span
               style={{
@@ -2038,51 +2549,30 @@ export default function TerminalPane({
             </span>
           )}
 
-          {/* In-Pane Split Right Button */}
-          {onSplitRight && (
+          {/* In-Pane Split Button (Right/Below unified) */}
+          {(onSplitRight || onSplitDown) && (
             <button
               className="pane-split-button"
-              onClick={() => setShowSplitMenu(showSplitMenu === 'right' ? null : 'right')}
-              title="Split Right with another terminal or webchat"
+              onClick={() => setShowSplitMenu(showSplitMenu ? null : 'right')}
+              title="Split terminal side-by-side or stacked"
               style={{
-                background:
-                  showSplitMenu === 'right' ? 'rgba(117,157,255,0.2)' : 'rgba(255,255,255,0.05)',
-                border: '1px solid rgba(255,255,255,0.1)',
-                color: showSplitMenu === 'right' ? '#8baeff' : '#aaa',
+                background: showSplitMenu ? 'rgba(117,157,255,0.2)' : 'rgba(255,255,255,0.05)',
+                border: showSplitMenu
+                  ? '1px solid rgba(117,157,255,0.4)'
+                  : '1px solid rgba(255,255,255,0.1)',
+                color: showSplitMenu ? '#8baeff' : '#aaa',
                 cursor: 'pointer',
                 borderRadius: '4px',
                 padding: '2px 6px',
-                fontSize: '10px',
+                fontSize: '10.5px',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '3px'
               }}
             >
-              <SplitSquareHorizontal size={12} /> Split ◧ <ChevronDown size={9} />
-            </button>
-          )}
-
-          {/* In-Pane Split Down Button */}
-          {onSplitDown && (
-            <button
-              className="pane-split-button"
-              onClick={() => setShowSplitMenu(showSplitMenu === 'down' ? null : 'down')}
-              title="Split Below with another terminal or webchat"
-              style={{
-                background:
-                  showSplitMenu === 'down' ? 'rgba(117,157,255,0.2)' : 'rgba(255,255,255,0.05)',
-                border: '1px solid rgba(255,255,255,0.1)',
-                color: showSplitMenu === 'down' ? '#8baeff' : '#aaa',
-                cursor: 'pointer',
-                borderRadius: '4px',
-                padding: '2px 6px',
-                fontSize: '10px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '3px'
-              }}
-            >
-              <SplitSquareVertical size={12} /> ⬒
+              <SplitSquareHorizontal size={12} />
+              <span>Split</span>
+              <ChevronDown size={9} />
             </button>
           )}
 
@@ -2100,26 +2590,78 @@ export default function TerminalPane({
                 borderRadius: '8px',
                 padding: '6px',
                 zIndex: 9999,
-                width: '210px',
+                width: '220px',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '2px'
+                gap: '4px'
               }}
             >
+              {/* Direction selector tabs */}
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '3px',
+                  background: 'rgba(255,255,255,0.04)',
+                  padding: '2px',
+                  borderRadius: '5px'
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setShowSplitMenu('right')}
+                  style={{
+                    flex: 1,
+                    padding: '3px 4px',
+                    fontSize: '9.5px',
+                    fontWeight: 600,
+                    borderRadius: '4px',
+                    border: 'none',
+                    background:
+                      showSplitMenu === 'right' ? 'rgba(117,157,255,0.25)' : 'transparent',
+                    color: showSplitMenu === 'right' ? '#8baeff' : '#888',
+                    cursor: 'pointer'
+                  }}
+                >
+                  ◧ Right (50/50)
+                </button>
+                {onSplitDown && (
+                  <button
+                    type="button"
+                    onClick={() => setShowSplitMenu('down')}
+                    style={{
+                      flex: 1,
+                      padding: '3px 4px',
+                      fontSize: '9.5px',
+                      fontWeight: 600,
+                      borderRadius: '4px',
+                      border: 'none',
+                      background:
+                        showSplitMenu === 'down' ? 'rgba(117,157,255,0.25)' : 'transparent',
+                      color: showSplitMenu === 'down' ? '#8baeff' : '#888',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ⬒ Below (Stack)
+                  </button>
+                )}
+              </div>
+
               <div
                 style={{
                   fontSize: '9px',
                   fontWeight: 700,
                   color: '#8baeff',
                   textTransform: 'uppercase',
-                  padding: '3px 6px'
+                  padding: '2px 4px'
                 }}
               >
-                Split {showSplitMenu === 'right' ? 'Right (50/50)' : 'Below (Stacked)'} with:
+                Open in new pane:
               </div>
+
               <button
+                type="button"
                 onClick={() => {
-                  const fn = showSplitMenu === 'right' ? onSplitRight : onSplitDown
+                  const fn = showSplitMenu === 'down' ? onSplitDown : onSplitRight
                   fn?.('terminal')
                   setShowSplitMenu(null)
                 }}
@@ -2127,10 +2669,10 @@ export default function TerminalPane({
                   display: 'flex',
                   alignItems: 'center',
                   gap: '8px',
-                  padding: '6px 8px',
+                  padding: '5px 8px',
                   background: 'transparent',
                   border: 'none',
-                  borderRadius: '5px',
+                  borderRadius: '4px',
                   color: '#eee',
                   cursor: 'pointer',
                   textAlign: 'left',
@@ -2141,7 +2683,7 @@ export default function TerminalPane({
                 }
                 onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
               >
-                <TermIcon size={13} color="#8baeff" /> New Terminal (Shell)
+                <TermIcon size={12} color="#8baeff" /> New Terminal (Shell)
               </button>
 
               {state.aiAccounts && state.aiAccounts.length > 0 ? (
@@ -2157,8 +2699,9 @@ export default function TerminalPane({
                   return (
                     <button
                       key={acc.id}
+                      type="button"
                       onClick={() => {
-                        const fn = showSplitMenu === 'right' ? onSplitRight : onSplitDown
+                        const fn = showSplitMenu === 'down' ? onSplitDown : onSplitRight
                         fn?.('webchat', acc.url, acc.name, acc.partition, acc.id)
                         setShowSplitMenu(null)
                       }}
@@ -2166,10 +2709,10 @@ export default function TerminalPane({
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
-                        padding: '6px 8px',
+                        padding: '5px 8px',
                         background: 'transparent',
                         border: 'none',
-                        borderRadius: '5px',
+                        borderRadius: '4px',
                         color: '#eee',
                         cursor: 'pointer',
                         textAlign: 'left',
@@ -2190,7 +2733,7 @@ export default function TerminalPane({
                           whiteSpace: 'nowrap'
                         }}
                       >
-                        <span style={{ fontSize: '13px' }}>{icon}</span>
+                        <span style={{ fontSize: '12px' }}>{icon}</span>
                         <span>{acc.name}</span>
                       </div>
                     </button>
@@ -2199,8 +2742,9 @@ export default function TerminalPane({
               ) : (
                 <>
                   <button
+                    type="button"
                     onClick={() => {
-                      const fn = showSplitMenu === 'right' ? onSplitRight : onSplitDown
+                      const fn = showSplitMenu === 'down' ? onSplitDown : onSplitRight
                       fn?.(
                         'webchat',
                         'https://search.brave.com',
@@ -2213,10 +2757,10 @@ export default function TerminalPane({
                       display: 'flex',
                       alignItems: 'center',
                       gap: '8px',
-                      padding: '6px 8px',
+                      padding: '5px 8px',
                       background: 'transparent',
                       border: 'none',
-                      borderRadius: '5px',
+                      borderRadius: '4px',
                       color: '#eee',
                       cursor: 'pointer',
                       textAlign: 'left',
@@ -2227,11 +2771,12 @@ export default function TerminalPane({
                     }
                     onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                   >
-                    <span style={{ fontSize: '13px' }}>🦁</span> Brave Web Browser
+                    <span style={{ fontSize: '12px' }}>🦁</span> Brave Web Browser
                   </button>
                   <button
+                    type="button"
                     onClick={() => {
-                      const fn = showSplitMenu === 'right' ? onSplitRight : onSplitDown
+                      const fn = showSplitMenu === 'down' ? onSplitDown : onSplitRight
                       fn?.(
                         'webchat',
                         'https://chatgpt.com',
@@ -2244,10 +2789,10 @@ export default function TerminalPane({
                       display: 'flex',
                       alignItems: 'center',
                       gap: '8px',
-                      padding: '6px 8px',
+                      padding: '5px 8px',
                       background: 'transparent',
                       border: 'none',
-                      borderRadius: '5px',
+                      borderRadius: '4px',
                       color: '#eee',
                       cursor: 'pointer',
                       textAlign: 'left',
@@ -2258,11 +2803,12 @@ export default function TerminalPane({
                     }
                     onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                   >
-                    <span style={{ fontSize: '13px' }}>🤖</span> ChatGPT Screen
+                    <span style={{ fontSize: '12px' }}>🤖</span> ChatGPT Screen
                   </button>
                   <button
+                    type="button"
                     onClick={() => {
-                      const fn = showSplitMenu === 'right' ? onSplitRight : onSplitDown
+                      const fn = showSplitMenu === 'down' ? onSplitDown : onSplitRight
                       fn?.(
                         'webchat',
                         'https://claude.ai',
@@ -2275,10 +2821,10 @@ export default function TerminalPane({
                       display: 'flex',
                       alignItems: 'center',
                       gap: '8px',
-                      padding: '6px 8px',
+                      padding: '5px 8px',
                       background: 'transparent',
                       border: 'none',
-                      borderRadius: '5px',
+                      borderRadius: '4px',
                       color: '#eee',
                       cursor: 'pointer',
                       textAlign: 'left',
@@ -2289,11 +2835,12 @@ export default function TerminalPane({
                     }
                     onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                   >
-                    <span style={{ fontSize: '13px' }}>🧠</span> Claude.ai Screen
+                    <span style={{ fontSize: '12px' }}>🧠</span> Claude.ai Screen
                   </button>
                   <button
+                    type="button"
                     onClick={() => {
-                      const fn = showSplitMenu === 'right' ? onSplitRight : onSplitDown
+                      const fn = showSplitMenu === 'down' ? onSplitDown : onSplitRight
                       fn?.(
                         'webchat',
                         'https://gemini.google.com',
@@ -2306,10 +2853,10 @@ export default function TerminalPane({
                       display: 'flex',
                       alignItems: 'center',
                       gap: '8px',
-                      padding: '6px 8px',
+                      padding: '5px 8px',
                       background: 'transparent',
                       border: 'none',
-                      borderRadius: '5px',
+                      borderRadius: '4px',
                       color: '#eee',
                       cursor: 'pointer',
                       textAlign: 'left',
@@ -2320,54 +2867,53 @@ export default function TerminalPane({
                     }
                     onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                   >
-                    <span style={{ fontSize: '13px' }}>💎</span> Google Gemini
+                    <span style={{ fontSize: '12px' }}>💎</span> Google Gemini
                   </button>
                 </>
               )}
             </div>
           )}
 
-          {/* Focus in Split View Button */}
-          {onFocus && (
-            <button
-              onClick={onFocus}
-              title="Focus this terminal in split view (Master)"
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: '#888',
-                cursor: 'pointer',
-                display: 'flex',
-                padding: '2px'
-              }}
-              onMouseOver={(e) => (e.currentTarget.style.color = '#ffc107')}
-              onMouseOut={(e) => (e.currentTarget.style.color = '#888')}
-            >
-              <Star size={13} />
-            </button>
-          )}
+          {/* Quick Font Size Toggle (Compact / Standard) */}
+          <button
+            type="button"
+            onClick={() => {
+              setTerminalFontSize((prev) => {
+                const next = prev <= 11 ? 13 : 11
+                localStorage.setItem('nexus-terminal-font-size', next.toString())
+                if (termInstanceRef.current) {
+                  termInstanceRef.current.options.fontSize = next
+                  fitAddonRef.current?.fit()
+                }
+                return next
+              })
+            }}
+            title={
+              terminalFontSize <= 11
+                ? 'Standard Font Size (13px)'
+                : 'Compact Font Size (11px, more columns for CLI TUIs)'
+            }
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: terminalFontSize <= 11 ? '#8baeff' : '#888',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              padding: '2px 4px',
+              fontSize: '11px',
+              fontWeight: 700,
+              borderRadius: '4px'
+            }}
+            onMouseOver={(e) => (e.currentTarget.style.color = '#8baeff')}
+            onMouseOut={(e) =>
+              (e.currentTarget.style.color = terminalFontSize <= 11 ? '#8baeff' : '#888')
+            }
+          >
+            {terminalFontSize <= 11 ? 'A+' : 'A-'}
+          </button>
 
-          {/* Open Web-Chat Beside Button (1 Screen Split) */}
-          {onOpenWebBeside && (
-            <button
-              onClick={onOpenWebBeside}
-              title="Open AI Web-Chat / Browser beside this terminal (1-Screen Split)"
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: '#888',
-                cursor: 'pointer',
-                display: 'flex',
-                padding: '2px'
-              }}
-              onMouseOver={(e) => (e.currentTarget.style.color = '#4da6ff')}
-              onMouseOut={(e) => (e.currentTarget.style.color = '#888')}
-            >
-              <Columns2 size={13} />
-            </button>
-          )}
-
-          {/* Full Screen Button */}
+          {/* Full Screen / Maximize Button */}
           {onMaximize && (
             <button
               onClick={onMaximize}
@@ -2387,28 +2933,9 @@ export default function TerminalPane({
             </button>
           )}
 
-          {/* Dock to Sidebar Button */}
-          {onDock && (
-            <button
-              onClick={onDock}
-              title="Dock to Sidebar"
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: '#888',
-                cursor: 'pointer',
-                display: 'flex',
-                padding: '2px'
-              }}
-              onMouseOver={(e) => (e.currentTarget.style.color = '#ffc107')}
-              onMouseOut={(e) => (e.currentTarget.style.color = '#888')}
-            >
-              <Pin size={13} />
-            </button>
-          )}
-
+          {/* Close Terminal Button with Double-check Verification Toast */}
           <button
-            onClick={handleClose}
+            onClick={() => setShowCloseConfirm(true)}
             style={{
               background: 'transparent',
               border: 'none',
@@ -2427,6 +2954,178 @@ export default function TerminalPane({
           </button>
         </div>
       </div>
+
+      {/* Inter-terminal Communication: Speak Dock */}
+      {showSpeakDock && (
+        <div
+          style={{
+            backgroundColor: '#161821',
+            borderBottom: '1px solid rgba(117, 157, 255, 0.35)',
+            padding: '8px 12px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px',
+            zIndex: 15,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.4)'
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '8px'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <MessageSquareQuote size={13} color="#8baeff" />
+              <span style={{ fontSize: '11px', fontWeight: 700, color: '#8baeff' }}>
+                Speak to Session:
+              </span>
+              {otherTerminals.length > 0 ? (
+                <select
+                  value={targetTerminalId}
+                  onChange={(e) => setTargetTerminalId(e.target.value)}
+                  style={{
+                    backgroundColor: '#202430',
+                    color: '#eee',
+                    border: '1px solid rgba(117,157,255,0.3)',
+                    borderRadius: '4px',
+                    padding: '2px 8px',
+                    fontSize: '11px',
+                    outline: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {otherTerminals.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name} ({t.cwd.split('/').pop() || t.cwd})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span style={{ fontSize: '11px', color: '#888', fontStyle: 'italic' }}>
+                  No other active terminals open
+                </span>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              {speakFeedback && (
+                <span style={{ fontSize: '10.5px', color: '#34d399', fontWeight: 600 }}>
+                  {speakFeedback}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={handlePipeOutput}
+                title="Append recent output from this terminal into the message box"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '3px 8px',
+                  borderRadius: '4px',
+                  backgroundColor: 'rgba(255,255,255,0.06)',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  color: '#bbb',
+                  fontSize: '10.5px',
+                  cursor: 'pointer'
+                }}
+              >
+                <Clipboard size={11} /> Pipe Output
+              </button>
+              <button
+                type="button"
+                onClick={handleSendHandoffToSession}
+                title="Send lean git handoff context to target terminal"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '3px 8px',
+                  borderRadius: '4px',
+                  backgroundColor: 'rgba(117,157,255,0.12)',
+                  border: '1px solid rgba(117,157,255,0.3)',
+                  color: '#8baeff',
+                  fontSize: '10.5px',
+                  cursor: 'pointer',
+                  fontWeight: 600
+                }}
+              >
+                <span>📦</span> Send Handoff
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowSpeakDock(false)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#888',
+                  cursor: 'pointer',
+                  padding: '2px',
+                  display: 'flex'
+                }}
+              >
+                <X size={13} />
+              </button>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <textarea
+              value={speakMessage}
+              onChange={(e) => setSpeakMessage(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault()
+                  void handleSendSpeak()
+                }
+              }}
+              placeholder="Type message or instructions to pipe into target terminal... (Press ⌘↵ to Send)"
+              rows={2}
+              style={{
+                flex: 1,
+                backgroundColor: '#111318',
+                border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: '5px',
+                color: '#f0f6fc',
+                padding: '6px 8px',
+                fontSize: '11.5px',
+                fontFamily: 'ui-monospace, monospace',
+                resize: 'none',
+                outline: 'none'
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => void handleSendSpeak()}
+              disabled={!speakMessage.trim() || !targetTerminalId}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '5px',
+                padding: '0 14px',
+                borderRadius: '5px',
+                backgroundColor:
+                  speakMessage.trim() && targetTerminalId
+                    ? '#3b82f6'
+                    : 'rgba(255,255,255,0.06)',
+                border: 'none',
+                color: speakMessage.trim() && targetTerminalId ? '#fff' : '#666',
+                fontSize: '11px',
+                fontWeight: 600,
+                cursor: speakMessage.trim() && targetTerminalId ? 'pointer' : 'not-allowed',
+                transition: 'all 0.15s'
+              }}
+            >
+              <Send size={12} />
+              <span>Send</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Herdr-Style Blocker Banner: Waiting on User Approval */}
       {effectiveAgentStatus === 'waiting' && (
@@ -2859,6 +3558,124 @@ export default function TerminalPane({
             <span>Clear Screen</span>
             <span style={{ marginLeft: 'auto', color: '#a3afbd', fontSize: '10px' }}>⌘K</span>
           </button>
+        </div>
+      )}
+
+      {/* Attractive Toast Verification for Closing Terminal Session */}
+      {showCloseConfirm && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            backgroundColor: 'rgba(8, 11, 17, 0.88)',
+            backdropFilter: 'blur(10px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 600,
+            padding: '16px'
+          }}
+          onClick={() => setShowCloseConfirm(false)}
+        >
+          <div
+            style={{
+              backgroundColor: '#161d2b',
+              border: '1px solid rgba(239, 68, 68, 0.45)',
+              boxShadow: '0 20px 50px rgba(0, 0, 0, 0.8), 0 0 35px rgba(239, 68, 68, 0.25)',
+              borderRadius: '12px',
+              padding: '20px 24px',
+              maxWidth: '360px',
+              width: '100%',
+              textAlign: 'center',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '12px',
+              animation: 'nexus-screen-in 0.18s ease-out'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                width: '44px',
+                height: '44px',
+                borderRadius: '50%',
+                backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                border: '1px solid rgba(239, 68, 68, 0.4)',
+                display: 'grid',
+                placeItems: 'center',
+                color: '#ef4444'
+              }}
+            >
+              <AlertTriangle size={22} />
+            </div>
+
+            <div>
+              <div
+                style={{
+                  fontSize: '15px',
+                  fontWeight: 700,
+                  color: '#f8fafc',
+                  marginBottom: '4px'
+                }}
+              >
+                Close session "{name}"?
+              </div>
+              <div style={{ fontSize: '12px', color: '#94a3b8', lineHeight: 1.45 }}>
+                Any active running processes, agent commands, or background tasks will be terminated.
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', width: '100%', marginTop: '6px' }}>
+              <button
+                type="button"
+                onClick={() => setShowCloseConfirm(false)}
+                style={{
+                  flex: 1,
+                  padding: '9px 14px',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(255, 255, 255, 0.14)',
+                  background: 'rgba(255, 255, 255, 0.06)',
+                  color: '#cbd5e1',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+                onMouseOver={(e) =>
+                  (e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.12)')
+                }
+                onMouseOut={(e) =>
+                  (e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.06)')
+                }
+              >
+                Cancel (Esc)
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCloseConfirm(false)
+                  handleClose()
+                }}
+                style={{
+                  flex: 1,
+                  padding: '9px 14px',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(239, 68, 68, 0.6)',
+                  background: 'linear-gradient(180deg, #ef4444, #dc2626)',
+                  color: '#ffffff',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 14px rgba(239, 68, 68, 0.4)'
+                }}
+                onMouseOver={(e) => (e.currentTarget.style.filter = 'brightness(1.1)')}
+                onMouseOut={(e) => (e.currentTarget.style.filter = 'none')}
+              >
+                Close (↵)
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

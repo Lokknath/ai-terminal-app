@@ -39,30 +39,35 @@ export function initFileManager(mainWindow?: BrowserWindow): void {
   })
 
   ipcMain.handle('read-directory', async (_event, dirPath: string) => {
-    const resolved = resolvePath(dirPath)
-    const entries = await fs.promises.readdir(resolved, { withFileTypes: true })
-    const visible = entries.filter((entry) => !entry.name.startsWith('.') && entry.isDirectory())
-    const folders: DirectoryItem[] = []
-    // Bound concurrent subdirectory reads so large folders stay responsive.
-    for (let index = 0; index < visible.length; index += 16) {
-      const batch = await Promise.all(
-        visible.slice(index, index + 16).map(async (entry) => {
-          const fullPath = path.join(resolved, entry.name)
-          let hasChildren = false
-          try {
-            const children = await fs.promises.readdir(fullPath, { withFileTypes: true })
-            hasChildren = children.some(
-              (child) => !child.name.startsWith('.') && child.isDirectory()
-            )
-          } catch {
-            // A folder can still be selected when its contents are unavailable.
-          }
-          return { name: entry.name, path: fullPath, hasChildren }
-        })
-      )
-      folders.push(...batch)
+    try {
+      const resolved = resolvePath(dirPath)
+      const entries = await fs.promises.readdir(resolved, { withFileTypes: true })
+      const visible = entries.filter((entry) => !entry.name.startsWith('.') && entry.isDirectory())
+      const folders: DirectoryItem[] = []
+      // Bound concurrent subdirectory reads so large folders stay responsive.
+      for (let index = 0; index < visible.length; index += 16) {
+        const batch = await Promise.all(
+          visible.slice(index, index + 16).map(async (entry) => {
+            const fullPath = path.join(resolved, entry.name)
+            let hasChildren = false
+            try {
+              const children = await fs.promises.readdir(fullPath, { withFileTypes: true })
+              hasChildren = children.some(
+                (child) => !child.name.startsWith('.') && child.isDirectory()
+              )
+            } catch {
+              // A folder can still be selected when its contents are unavailable.
+            }
+            return { name: entry.name, path: fullPath, hasChildren }
+          })
+        )
+        folders.push(...batch)
+      }
+      return folders.sort((a, b) => a.name.localeCompare(b.name))
+    } catch (err) {
+      console.warn(`[FileManager] Could not read directory "${dirPath}":`, err)
+      return []
     }
-    return folders.sort((a, b) => a.name.localeCompare(b.name))
   })
 
   ipcMain.handle('select-directory', async (event, defaultPath?: string) => {
@@ -169,10 +174,15 @@ ${recentCommits ? `## Recent Commits\n\`\`\`\n${recentCommits}\n\`\`\`\n` : ''}
       try {
         fs.writeFileSync(handoffPath, handoffContent, 'utf-8')
         saved = true
-        // Also write root .handoff.md for easy discovery
-        fs.writeFileSync(path.join(resolved, '.handoff.md'), handoffContent, 'utf-8')
       } catch (err) {
         console.error('Failed to write handoff file:', err)
+      }
+
+      // Also write root .handoff.md for easy discovery if permissions allow
+      try {
+        fs.writeFileSync(path.join(resolved, '.handoff.md'), handoffContent, 'utf-8')
+      } catch {
+        /* workspace root may be write-restricted in monorepos or container mounts */
       }
 
       const prompt = `Resume task from handoff. Read .nexus/handoff.md and run 'git status' to inspect current disk state. Focus strictly on Next Steps.`

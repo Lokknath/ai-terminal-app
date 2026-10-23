@@ -17,7 +17,7 @@ import AttentionNotificationToast from './components/AttentionNotificationToast'
 import StatusBar from './components/StatusBar'
 import DevPortManagerModal from './components/DevPortManagerModal'
 import { ArrowLeft, Move, Terminal, Plus, Bot, Globe, Columns, Sparkles } from 'lucide-react'
-import { getAccountEnv, getProviderCliCommand, type AIAccount } from './types'
+import { getAccountEnv, getProviderCliCommand } from './types'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
 
@@ -157,13 +157,24 @@ function computeLayoutBoxes(
       }
     }
     if (type === 'pair') {
+      const count = paneList.length
+      if (count <= 2) {
+        return {
+          id: pane.id,
+          name: pane.name,
+          x: (i % 2) * 6,
+          y: 0,
+          w: 6,
+          h: 8
+        }
+      }
       return {
         id: pane.id,
         name: pane.name,
         x: (i % 2) * 6,
-        y: Math.floor(i / 2) * (paneList.length <= 2 ? 8 : 4),
+        y: Math.floor(i / 2) * 4,
         w: 6,
-        h: paneList.length <= 2 ? 8 : 4
+        h: 4
       }
     }
     if (type === 'code-chat') {
@@ -253,13 +264,24 @@ function computeLayoutBoxes(
       return { id: pane.id, name: pane.name, x: (i % 3) * 4, y: 8, w: 4, h: 4 }
     }
     if (type === 'swarm') {
+      const count = paneList.length
+      if (count <= 3) {
+        return {
+          id: pane.id,
+          name: pane.name,
+          x: (i % 3) * 4,
+          y: 0,
+          w: 4,
+          h: 8
+        }
+      }
       return {
         id: pane.id,
         name: pane.name,
         x: (i % 3) * 4,
-        y: Math.floor(i / 3) * (paneList.length <= 3 ? 8 : 4),
+        y: Math.floor(i / 3) * 4,
         w: 4,
-        h: paneList.length <= 3 ? 8 : 4
+        h: 4
       }
     }
     if (type === 'master-3') {
@@ -308,19 +330,35 @@ function computeLayoutBoxes(
       }
     }
     if (type === 'stack') {
+      const count = paneList.length
+      const rowHeight = count <= 2 ? 4 : count === 3 ? 3 : 4
       return {
         id: pane.id,
         name: pane.name,
         x: 0,
-        y: i * 4,
+        y: i * rowHeight,
         w: 12,
-        h: 4
+        h: rowHeight
       }
     }
     if (type === 'sidebar') {
-      return i === 0
-        ? { id: pane.id, name: pane.name, x: 0, y: 0, w: 4, h: 8 }
-        : { id: pane.id, name: pane.name, x: 4, y: (i - 1) * 4, w: 8, h: 4 }
+      const count = paneList.length
+      if (count <= 1) {
+        return { id: pane.id, name: pane.name, x: 0, y: 0, w: 12, h: 8 }
+      }
+      if (i === 0) {
+        return { id: pane.id, name: pane.name, x: 0, y: 0, w: 8, h: 8 }
+      }
+      const sideCount = count - 1
+      const sideHeight = sideCount <= 2 ? 4 : Math.max(2, Math.floor(8 / sideCount))
+      return {
+        id: pane.id,
+        name: pane.name,
+        x: 8,
+        y: (i - 1) * sideHeight,
+        w: 4,
+        h: sideHeight
+      }
     }
     return {
       id: pane.id,
@@ -331,6 +369,22 @@ function computeLayoutBoxes(
       h: 4
     }
   })
+}
+
+function getNextTerminalNumber(
+  existingPanes: GridPane[],
+  existingSessions: { name: string }[] = []
+): number {
+  let max = 0
+  const all = [...existingPanes.map((p) => p.name), ...existingSessions.map((s) => s.name)]
+  for (const str of all) {
+    const m = str.match(/(?:Terminal|Main)-(\d+)/i)
+    if (m) {
+      const val = parseInt(m[1], 10)
+      if (val > max) max = val
+    }
+  }
+  return max + 1
 }
 
 function AppShell(): JSX.Element {
@@ -355,6 +409,7 @@ function AppShell(): JSX.Element {
   const codeWorkspaceRef = useRef<HTMLDivElement>(null)
   const [gridWidth, setGridWidth] = useState(1200)
   const [gridHeight, setGridHeight] = useState(760)
+  const terminalSeqRef = useRef<number>(1)
 
   useEffect(() => {
     const handler = (): void => setShowPortManager(true)
@@ -365,6 +420,10 @@ function AppShell(): JSX.Element {
   useEffect(() => {
     const container = codeWorkspaceRef.current
     if (!container || state.mode !== 'code') return
+    if (container.clientWidth > 0 && container.clientHeight > 0) {
+      setGridWidth(Math.max(1, Math.floor(container.clientWidth)))
+      setGridHeight(Math.max(1, Math.floor(container.clientHeight)))
+    }
     // Measure both axes so an eight-row workspace fits the visible window at any size.
     const observer = new ResizeObserver(([entry]) => {
       if (!entry) return
@@ -372,25 +431,33 @@ function AppShell(): JSX.Element {
       setGridHeight(Math.max(1, Math.floor(entry.contentRect.height)))
     })
     observer.observe(container)
-    return () => observer.disconnect()
+    const raf = requestAnimationFrame(() => {
+      window.dispatchEvent(new Event('resize'))
+    })
+    return () => {
+      cancelAnimationFrame(raf)
+      observer.disconnect()
+    }
   }, [state.mode])
 
   useEffect(() => {
     sidebarOpenRef.current = state.sidebarOpen
+    const timer = setTimeout(() => {
+      window.dispatchEvent(new Event('resize'))
+    }, 40)
+    return () => clearTimeout(timer)
   }, [state.sidebarOpen])
 
   useEffect(() => {
-    const compact = window.matchMedia('(max-width: 880px)')
-    const closeSidebar = (): void => {
-      // Only close when entering a compact viewport. Manual reopening remains possible.
-      if (compact.matches && sidebarOpenRef.current) {
+    const compact = window.matchMedia('(max-width: 600px)')
+    const closeSidebarOnVerySmallScreen = (e: MediaQueryListEvent): void => {
+      if (e.matches && sidebarOpenRef.current) {
         sidebarOpenRef.current = false
         dispatch({ type: 'TOGGLE_SIDEBAR' })
       }
     }
-    closeSidebar()
-    compact.addEventListener('change', closeSidebar)
-    return () => compact.removeEventListener('change', closeSidebar)
+    compact.addEventListener('change', closeSidebarOnVerySmallScreen)
+    return () => compact.removeEventListener('change', closeSidebarOnVerySmallScreen)
   }, [dispatch])
 
   const hasActiveModal =
@@ -529,6 +596,16 @@ function AppShell(): JSX.Element {
         clearTimeout(timer)
         if (active) setAccountsReady(true)
       })
+
+    window.api
+      .detectCLIAgents()
+      .then((clis) => {
+        if (active) {
+          dispatch({ type: 'SET_DETECTED_CLIS', clis: clis.map((c) => c.providerId) })
+        }
+      })
+      .catch(() => {})
+
     return () => {
       active = false
       clearTimeout(timer)
@@ -569,9 +646,11 @@ function AppShell(): JSX.Element {
     }
   }, [dispatch])
 
-  // Run-When-Away: Auto-prevent system sleep when any agent in the swarm is working
+  // Run-When-Away: Auto-prevent system sleep when any agent in the swarm is working or waiting
   useEffect(() => {
-    const hasWorkingAgent = state.terminals.some((t) => t.agentState?.status === 'working')
+    const hasWorkingAgent = state.terminals.some(
+      (t) => t.agentState?.status === 'working' || t.agentState?.status === 'waiting'
+    )
     if (hasWorkingAgent && !state.keepAwake) {
       window.api
         .setKeepAwake(true)
@@ -748,7 +827,21 @@ function AppShell(): JSX.Element {
       customEnv?: Record<string, string>
     ) => {
       const newId = `term-${crypto.randomUUID()}`
-      const termName = name || `Terminal-${panes.length + 1}`
+
+      let termName = name
+      if (!termName) {
+        if (cwd && cwd !== '~' && cwd.trim() !== '') {
+          const folderBasename = cwd.replace(/[/\\]+$/, '').split(/[/\\]/).pop() || 'Workspace'
+          const existingCount = panes.filter(
+            (p) => p.name === folderBasename || p.name.startsWith(`${folderBasename} (`)
+          ).length
+          termName = existingCount === 0 ? folderBasename : `${folderBasename} (${existingCount + 1})`
+        } else {
+          const nextSeq = Math.max(terminalSeqRef.current, getNextTerminalNumber(panes, state.terminals))
+          terminalSeqRef.current = nextSeq + 1
+          termName = `Terminal-${nextSeq}`
+        }
+      }
 
       // Add saved credentials only when the pane names an account, or when
       // its provider maps to a known account. Ordinary shells remain clean.
@@ -759,18 +852,33 @@ function AppShell(): JSX.Element {
           resolvedEnv = { ...getAccountEnv(acc), ...resolvedEnv }
         }
       } else if (providerId && providerId !== 'local' && providerId !== 'web') {
-        const matchingAcc = state.aiAccounts.find(
-          (a) =>
-            a.providerId === providerId ||
-            (providerId.startsWith('claude') && a.providerId === 'claude') ||
-            (providerId.startsWith('chatgpt') && a.providerId === 'chatgpt') ||
-            ((providerId.startsWith('gemini') ||
-              providerId.startsWith('agy') ||
-              providerId.startsWith('antigravity')) &&
-              a.providerId === 'gemini')
-        )
+        const matchingAcc =
+          state.aiAccounts.find(
+            (a) =>
+              a.isDefault &&
+              (a.providerId === providerId ||
+                (providerId.startsWith('claude') && a.providerId === 'claude') ||
+                (providerId.startsWith('chatgpt') && a.providerId === 'chatgpt') ||
+                ((providerId.startsWith('gemini') ||
+                  providerId.startsWith('agy') ||
+                  providerId.startsWith('antigravity')) &&
+                  a.providerId === 'gemini'))
+          ) ||
+          state.aiAccounts.find(
+            (a) =>
+              a.providerId === providerId ||
+              (providerId.startsWith('claude') && a.providerId === 'claude') ||
+              (providerId.startsWith('chatgpt') && a.providerId === 'chatgpt') ||
+              ((providerId.startsWith('gemini') ||
+                providerId.startsWith('agy') ||
+                providerId.startsWith('antigravity')) &&
+                a.providerId === 'gemini')
+          )
         if (matchingAcc) {
           resolvedEnv = { ...getAccountEnv(matchingAcc), ...resolvedEnv }
+          if (!accountId) {
+            accountId = matchingAcc.id
+          }
         }
       }
 
@@ -807,7 +915,31 @@ function AppShell(): JSX.Element {
       dispatch({ type: 'SET_MODE', mode: 'code' })
       dispatch({ type: 'SET_ACTIVE_SESSION', id: newId })
     },
-    [dispatch, panes.length, state.aiAccounts, computeLayoutForPanes]
+    [dispatch, panes, state.aiAccounts, state.terminals, computeLayoutForPanes]
+  )
+
+  const renameTerminalSession = useCallback(
+    (id: string, newName: string) => {
+      const trimmed = newName.trim()
+      if (!trimmed) return
+      setPanes((prev) => prev.map((p) => (p.id === id ? { ...p, name: trimmed } : p)))
+      dispatch({ type: 'RENAME_TERMINAL', id, name: trimmed })
+    },
+    [dispatch]
+  )
+
+  const sendCrossTerminalMessage = useCallback(
+    (_sourceId: string, targetId: string, message: string) => {
+      const trimmed = message.trim()
+      if (!trimmed) return false
+      const targetPane = panes.find((p) => p.id === targetId)
+      if (!targetPane) return false
+
+      const formattedInput = trimmed.endsWith('\r') ? trimmed : `${trimmed}\r`
+      window.electron.ipcRenderer.send('pty-write', targetId, formattedInput)
+      return true
+    },
+    [panes]
   )
 
   const addWebChat = useCallback(
@@ -836,15 +968,6 @@ function AppShell(): JSX.Element {
     [dispatch, computeLayoutForPanes]
   )
 
-  const openGeminiInBrowser = useCallback((account: AIAccount): void => {
-    void window.api
-      .openExternalURL(account.url)
-      .then((opened) => {
-        if (!opened)
-          setAppError(`Could not open ${account.name}. Check its URL and your default browser.`)
-      })
-      .catch(() => setAppError(`Could not open ${account.name} in your browser.`))
-  }, [])
 
   const removePane = useCallback(
     (idToRemove: string) => {
@@ -909,9 +1032,10 @@ function AppShell(): JSX.Element {
         e.preventDefault()
         if (state.viewMode === 'full') {
           dispatch({ type: 'SET_VIEW_MODE', viewMode: 'grid' })
-          dispatch({ type: 'SET_ACTIVE_SESSION', id: null })
         } else if (panes.length > 0) {
-          dispatch({ type: 'SET_ACTIVE_SESSION', id: state.activeSessionId || panes[0].id })
+          const targetId = state.activeSessionId || panes[0].id
+          dispatch({ type: 'SET_ACTIVE_SESSION', id: targetId })
+          dispatch({ type: 'SET_VIEW_MODE', viewMode: 'full' })
         }
         return
       }
@@ -973,17 +1097,17 @@ function AppShell(): JSX.Element {
         return
       }
 
-      // ⌘] / ⌘[: Switch to next / previous pane
-      if ((e.key === ']' || e.key === '[') && !e.shiftKey && !e.altKey) {
+      // ⌘] / ⌘[ or ⌘` / ⌘~: Switch to next / previous pane
+      if ((e.key === ']' || e.key === '[' || e.key === '`' || e.key === '~') && !e.altKey) {
         const visible = panes.filter((p) => !state.dockedSessionIds.includes(p.id))
         if (visible.length > 1) {
           e.preventDefault()
           const currentId = state.activeSessionId || visible[0].id
           const currentIndex = visible.findIndex((p) => p.id === currentId)
-          const nextIndex =
-            e.key === ']'
-              ? (currentIndex + 1) % visible.length
-              : (currentIndex - 1 + visible.length) % visible.length
+          const isReverse = e.key === '[' || (e.key === '`' && e.shiftKey) || e.key === '~'
+          const nextIndex = isReverse
+            ? (currentIndex - 1 + visible.length) % visible.length
+            : (currentIndex + 1) % visible.length
           const nextId = visible[nextIndex].id
           setJustCycledId(nextId)
           setTimeout(() => setJustCycledId(null), 700)
@@ -992,15 +1116,15 @@ function AppShell(): JSX.Element {
         }
       }
 
-      // ⌘1 - ⌘6: Switch Workspace Modes
+      // ⌘1 - ⌘6: Switch Workspace Modes (aligned with HeaderBar)
       if (!e.shiftKey && !e.altKey) {
         const modeMap: Record<string, AppMode> = {
-          '1': 'agent',
-          '2': 'code',
+          '1': 'code',
+          '2': 'agent',
           '3': 'chat',
-          '4': 'usage',
+          '4': 'api',
           '5': 'notes',
-          '6': 'api'
+          '6': 'usage'
         }
         const targetMode = modeMap[e.key]
         if (targetMode) {
@@ -1022,8 +1146,28 @@ function AppShell(): JSX.Element {
     state.dockedSessionIds,
     panes,
     addTerminal,
-    removePane
   ])
+
+  useEffect(() => {
+    const handleCycleMode = (): void => {
+      const modeOrder: AppMode[] = ['code', 'agent', 'chat', 'api', 'notes', 'usage']
+      const currentIndex = modeOrder.indexOf(state.mode)
+      const nextMode = modeOrder[(currentIndex + 1) % modeOrder.length]
+      dispatch({ type: 'SET_MODE', mode: nextMode })
+    }
+    window.addEventListener('nexus-cycle-mode', handleCycleMode)
+    return () => window.removeEventListener('nexus-cycle-mode', handleCycleMode)
+  }, [state.mode, dispatch])
+
+  useEffect(() => {
+    if (state.mode === 'code') {
+      const timer = setTimeout(() => {
+        window.dispatchEvent(new Event('resize'))
+      }, 30)
+      return () => clearTimeout(timer)
+    }
+    return undefined
+  }, [state.mode])
 
   const snapDraggedPane = useCallback(
     (
@@ -1113,9 +1257,11 @@ function AppShell(): JSX.Element {
     ) => {
       const newId =
         type === 'terminal' ? `term-${crypto.randomUUID()}` : `web-${crypto.randomUUID()}`
+      const nextSeq = Math.max(terminalSeqRef.current, getNextTerminalNumber(panes, state.terminals))
+      terminalSeqRef.current = nextSeq + 1
       const newName =
         type === 'terminal'
-          ? targetTitle || `Terminal-${panes.length + 1}`
+          ? targetTitle || `Terminal-${nextSeq}`
           : targetTitle || 'Brave Browser'
       const url = targetUrl || (type === 'webchat' ? 'https://search.brave.com' : undefined)
 
@@ -1235,7 +1381,12 @@ function AppShell(): JSX.Element {
         } else if (type === 'code-2-chat-1') {
           if (termCount < 2) {
             const tId = `term-${crypto.randomUUID()}`
-            const name = `Terminal-${currentPanes.length + 1}`
+            const nextSeq = Math.max(
+              terminalSeqRef.current,
+              getNextTerminalNumber(currentPanes, state.terminals)
+            )
+            terminalSeqRef.current = nextSeq + 1
+            const name = `Terminal-${nextSeq}`
             currentPanes.push({
               id: tId,
               type: 'terminal',
@@ -1314,7 +1465,12 @@ function AppShell(): JSX.Element {
         } else if (type === 'quad-code-chat') {
           if (termCount < 2) {
             const tId = `term-${crypto.randomUUID()}`
-            const name = `Terminal-${currentPanes.length + 1}`
+            const nextSeq = Math.max(
+              terminalSeqRef.current,
+              getNextTerminalNumber(currentPanes, state.terminals)
+            )
+            terminalSeqRef.current = nextSeq + 1
+            const name = `Terminal-${nextSeq}`
             currentPanes.push({
               id: tId,
               type: 'terminal',
@@ -1582,27 +1738,31 @@ function AppShell(): JSX.Element {
     : panes[0]
 
   const visiblePanes = panes.filter((p) => !state.dockedSessionIds.includes(p.id))
-  const gridRowHeight = Math.max(
-    52,
-    Math.floor((gridHeight - (state.viewMode === 'full' ? 84 : 40)) / 8)
-  )
+  const isFullView = state.viewMode === 'full'
+  const isSplitView = state.viewMode === 'split'
+  const topBarHeight = isFullView ? 52 : isSplitView ? 52 : 0
+  // With 8 rows and margin [8, 8], there are 7 vertical gaps (7 * 8 = 56px) plus outer padding.
+  const availableGridHeight = Math.max(160, gridHeight - topBarHeight - 64)
+  const gridRowHeight = Math.max(38, Math.floor(availableGridHeight / 8))
   const responsiveLayouts = useMemo(() => {
-    const stacked = (layouts.lg || []).map((item, index) => ({
-      ...item,
-      x: 0,
-      y: index * 6,
-      w: 12,
-      h: Math.max(item.h, 6)
-    }))
-    return { ...layouts, sm: stacked, xs: stacked, xxs: stacked }
+    const base = layouts.lg || []
+    return {
+      lg: layouts.lg || base,
+      md: layouts.md || base,
+      sm: layouts.sm || base,
+      xs: layouts.xs || base,
+      xxs: layouts.xxs || base
+    }
   }, [layouts])
 
   return (
     <div
       className="app-shell"
       style={{
-        height: '100vh',
-        width: '100vw',
+        height: '100%',
+        width: '100%',
+        maxWidth: '100%',
+        maxHeight: '100%',
         backgroundColor: '#0f0f11',
         backgroundImage: 'radial-gradient(circle at top right, #1a1a24 0%, #0f0f11 100%)',
         overflow: 'hidden',
@@ -1612,9 +1772,45 @@ function AppShell(): JSX.Element {
     >
       {/* Top Header */}
       <HeaderBar
+        visiblePaneCount={visiblePanes.length}
         onApplyLayout={applyLayout}
         onHoverLayout={setHoveredLayout}
         onNewTerminal={() => addTerminal('~')}
+        onOpenTerminalWithAccount={(acc, targetCwd) => {
+          const cmd = getProviderCliCommand(acc.providerId)
+          addTerminal(
+            targetCwd || '~',
+            `${acc.name} (${cmd})`,
+            cmd,
+            acc.providerId,
+            acc.id,
+            getAccountEnv(acc)
+          )
+        }}
+        onOpenFolderPickerForAccount={(acc) => {
+          const cmd = getProviderCliCommand(acc.providerId)
+          dispatch({
+            type: 'OPEN_FOLDER_EXPLORER',
+            title: `Select Working Directory for ${acc.name} (${cmd})`,
+            onSelect: (folder) =>
+              addTerminal(
+                folder,
+                `${acc.name} (${cmd})`,
+                cmd,
+                acc.providerId,
+                acc.id,
+                getAccountEnv(acc)
+              )
+          })
+        }}
+        onOpenFolderPicker={() => {
+          dispatch({
+            type: 'OPEN_FOLDER_EXPLORER',
+            title: 'Open Terminal in Folder',
+            onSelect: (folder) => addTerminal(folder)
+          })
+        }}
+        onOpenWebChat={(url, title) => addWebChat(url, title)}
         onToggleFocusSplit={() => {
           if (state.viewMode === 'split') {
             dispatch({ type: 'SET_VIEW_MODE', viewMode: 'grid' })
@@ -1639,17 +1835,35 @@ function AppShell(): JSX.Element {
         {/* Left: Agent Sidebar */}
         {state.sidebarOpen && (
           <AgentSidebar
+            onNewTerminal={() => addTerminal('~')}
             onCloseSession={removePane}
-            onOpenTerminalWithAccount={(acc) => {
+            onRenameSession={renameTerminalSession}
+            onOpenTerminalWithAccount={(acc, targetCwd) => {
               const cmd = getProviderCliCommand(acc.providerId)
               addTerminal(
-                '~',
+                targetCwd || '~',
                 `${acc.name} (${cmd})`,
                 cmd,
                 acc.providerId,
                 acc.id,
                 getAccountEnv(acc)
               )
+            }}
+            onOpenFolderPickerForAccount={(acc) => {
+              const cmd = getProviderCliCommand(acc.providerId)
+              dispatch({
+                type: 'OPEN_FOLDER_EXPLORER',
+                title: `Select Folder for ${acc.name} (${cmd})`,
+                onSelect: (folder) =>
+                  addTerminal(
+                    folder,
+                    `${acc.name} (${cmd})`,
+                    cmd,
+                    acc.providerId,
+                    acc.id,
+                    getAccountEnv(acc)
+                  )
+              })
             }}
             onLaunchCLI={(command, name) => {
               dispatch({
@@ -1659,11 +1873,7 @@ function AppShell(): JSX.Element {
               })
             }}
             onOpenAccount={(account) => {
-              if (account.providerId === 'gemini') {
-                openGeminiInBrowser(account)
-              } else {
-                addWebChat(account.url, account.name, account.partition)
-              }
+              addWebChat(account.url, account.name, account.partition)
             }}
           />
         )}
@@ -1671,27 +1881,37 @@ function AppShell(): JSX.Element {
         {/* Center: Dynamic Workspace based on Mode */}
         <div
           className="workspace-main"
-          style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column'
+          }}
         >
-          {state.mode === 'code' && (
-            <div
-              className="code-workspace"
-              ref={codeWorkspaceRef}
-              style={{
-                flex: 1,
-                overflow: 'auto',
-                padding: '10px',
-                display: 'flex',
-                flexDirection: 'column',
-                position: 'relative'
-              }}
-            >
+          {/* Persistent Code Workspace: Always mounted to keep background PTY listeners, agent detection, and attention alerts active */}
+          <div
+            className="code-workspace"
+            ref={codeWorkspaceRef}
+            style={{
+              flex: 1,
+              overflow: 'hidden',
+              padding: '8px',
+              display: state.mode === 'code' ? 'flex' : 'none',
+              flexDirection: 'column',
+              position: 'relative'
+            }}
+          >
               {/* Full Session Top Tab Bar Navigation (Persistent session tabs) */}
               {state.viewMode === 'full' && (
                 <div
                   style={{
+                    position: 'sticky',
+                    top: 0,
+                    flexShrink: 0,
                     padding: '8px 14px',
-                    backgroundColor: 'rgba(16, 16, 22, 0.95)',
+                    backgroundColor: 'rgba(16, 16, 22, 0.98)',
+                    backdropFilter: 'blur(12px)',
                     border: '1px solid rgba(255,255,255,0.08)',
                     borderRadius: '8px',
                     marginBottom: '8px',
@@ -1700,7 +1920,7 @@ function AppShell(): JSX.Element {
                     alignItems: 'center',
                     gap: '10px',
                     overflowX: 'auto',
-                    zIndex: 80
+                    zIndex: 90
                   }}
                 >
                   <div
@@ -1715,7 +1935,6 @@ function AppShell(): JSX.Element {
                     <button
                       onClick={() => {
                         dispatch({ type: 'SET_VIEW_MODE', viewMode: 'grid' })
-                        dispatch({ type: 'SET_ACTIVE_SESSION', id: null })
                       }}
                       title="Return to Grid Layout"
                       style={{
@@ -1844,8 +2063,12 @@ function AppShell(): JSX.Element {
               {state.viewMode === 'split' && (
                 <div
                   style={{
+                    position: 'sticky',
+                    top: 0,
+                    flexShrink: 0,
                     padding: '8px 14px',
-                    backgroundColor: 'rgba(16, 16, 24, 0.95)',
+                    backgroundColor: 'rgba(16, 16, 24, 0.98)',
+                    backdropFilter: 'blur(12px)',
                     border: '1px solid rgba(117, 157, 255, 0.35)',
                     borderRadius: '8px',
                     marginBottom: '8px',
@@ -1854,7 +2077,7 @@ function AppShell(): JSX.Element {
                     alignItems: 'center',
                     gap: '12px',
                     boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5), 0 0 16px rgba(117, 157, 255, 0.1)',
-                    zIndex: 80
+                    zIndex: 90
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -1915,7 +2138,7 @@ function AppShell(): JSX.Element {
               )}
 
               {/* Grid Layout View Mode with Interactive Drag Guidance and Hover Blueprint */}
-              <div style={{ position: 'relative', flex: 1, minHeight: '100%' }}>
+              <div style={{ position: 'relative', flex: 1, minHeight: 0, overflow: 'hidden' }}>
                 {/* Floating Drag HUD with Live Reactive Snap Options */}
                 {isDragging && (
                   <div
@@ -2003,6 +2226,7 @@ function AppShell(): JSX.Element {
                               dispatch({ type: 'SET_MODE', mode: 'code' })
                               dispatch({ type: 'UNDOCK_SESSION', id: draggedPaneId })
                               dispatch({ type: 'SET_ACTIVE_SESSION', id: draggedPaneId })
+                              dispatch({ type: 'SET_VIEW_MODE', viewMode: 'full' })
                             }
                           }
                         },
@@ -2478,7 +2702,7 @@ function AppShell(): JSX.Element {
                       <button
                         type="button"
                         className="workspace-starter-card"
-                        onClick={() => addTerminal(undefined, undefined, 'Terminal')}
+                        onClick={() => addTerminal('~', 'Terminal')}
                       >
                         <div className="starter-icon-box">
                           <Terminal size={20} />
@@ -2492,7 +2716,7 @@ function AppShell(): JSX.Element {
                       <button
                         type="button"
                         className="workspace-starter-card"
-                        onClick={() => addTerminal(undefined, 'claude', 'Claude Code', 'claude')}
+                        onClick={() => addTerminal('~', 'Claude Code', 'claude', 'claude')}
                       >
                         <div className="starter-icon-box starter-icon-ai">
                           <Bot size={20} />
@@ -2521,9 +2745,9 @@ function AppShell(): JSX.Element {
                         type="button"
                         className="workspace-starter-card"
                         onClick={() => {
-                          addTerminal(undefined, undefined, 'Terminal')
+                          addTerminal('~', 'Terminal')
                           setTimeout(() => {
-                            addTerminal(undefined, 'claude', 'Claude Code', 'claude')
+                            addTerminal('~', 'Claude Code', 'claude', 'claude')
                           }, 100)
                         }}
                       >
@@ -2556,7 +2780,7 @@ function AppShell(): JSX.Element {
                   onLayoutChange={(_layout, allLayouts) => setLayouts(allLayouts)}
                   // Breakpoints use the grid's width after the sidebar, not the outer window.
                   // Keep a two-pane workspace beside the sidebar at the default window size.
-                  breakpoints={{ lg: 1200, md: 900, sm: 680, xs: 480, xxs: 0 }}
+                  breakpoints={{ lg: 960, md: 720, sm: 480, xs: 320, xxs: 0 }}
                   cols={{ lg: 12, md: 12, sm: 12, xs: 12, xxs: 12 }}
                   rowHeight={gridRowHeight}
                   draggableHandle=".drag-handle"
@@ -2564,17 +2788,23 @@ function AppShell(): JSX.Element {
                   containerPadding={[0, 0]}
                   isDraggable={state.viewMode !== 'full'}
                   isResizable={state.viewMode !== 'full'}
+                  resizeHandles={['s', 'w', 'e', 'n', 'sw', 'nw', 'se', 'ne']}
                   onResizeStart={() => setIsResizing(true)}
                   onResizeStop={(currentLayout) => {
                     setIsResizing(false)
                     window.dispatchEvent(new Event('resize'))
-                    const rebalanced = rebalanceGridLayout(currentLayout)
+                    // Preserve the user's free custom sizing without overriding to equal widths
+                    const sanitized = currentLayout.map((item) => {
+                      const w = Math.min(12, Math.max(1, item.w))
+                      const x = Math.min(12 - w, Math.max(0, item.x))
+                      return { ...item, x, w, h: Math.max(2, item.h) }
+                    })
                     const allLayouts: ResponsiveLayouts = {
-                      lg: rebalanced,
-                      md: rebalanced,
-                      sm: rebalanced,
-                      xs: rebalanced,
-                      xxs: rebalanced
+                      lg: sanitized,
+                      md: sanitized,
+                      sm: sanitized,
+                      xs: sanitized,
+                      xxs: sanitized
                     }
                     setLayouts(allLayouts)
                   }}
@@ -2640,6 +2870,7 @@ function AppShell(): JSX.Element {
                         dispatch({ type: 'SET_MODE', mode: 'code' })
                         dispatch({ type: 'UNDOCK_SESSION', id: paneId })
                         dispatch({ type: 'SET_ACTIVE_SESSION', id: paneId })
+                        dispatch({ type: 'SET_VIEW_MODE', viewMode: 'full' })
                         return
                       }
                       if (zone === 'dock') {
@@ -2663,6 +2894,7 @@ function AppShell(): JSX.Element {
                     visiblePanes.map((pane, i) => {
                       const isFull = state.viewMode === 'full'
                       const isActive = pane.id === activePane?.id
+                      const paneLayout = layouts.lg?.find((l) => l.i === pane.id)
                       return (
                         <div
                           key={pane.id}
@@ -2673,20 +2905,22 @@ function AppShell(): JSX.Element {
                                 : 'pane-fullscreen-dimmed'
                               : ''
                           }`}
-                          data-grid={{
-                            x: visiblePanes.length === 1 ? 0 : (i % 2) * 6,
-                            y: visiblePanes.length === 1 ? 0 : Math.floor(i / 2) * 4,
-                            w: visiblePanes.length === 1 ? 12 : 6,
-                            h: visiblePanes.length <= 2 ? 8 : 4,
-                            minW: 2,
-                            minH: 2
-                          }}
+                          data-grid={
+                            paneLayout || {
+                              x: visiblePanes.length === 1 ? 0 : (i % 2) * 6,
+                              y: visiblePanes.length === 1 ? 0 : Math.floor(i / 2) * 4,
+                              w: visiblePanes.length === 1 ? 12 : 6,
+                              h: visiblePanes.length <= 2 ? 8 : 4,
+                              minW: 2,
+                              minH: 2
+                            }
+                          }
                           style={{
-                            border: '1px solid rgba(255,255,255,0.08)',
-                            backgroundColor: '#121214',
+                            border: 'none',
+                            backgroundColor: 'transparent',
                             borderRadius: '10px',
                             overflow: 'hidden',
-                            boxShadow: '0 8px 24px rgba(0,0,0,0.4)'
+                            boxShadow: 'none'
                           }}
                         >
                           {pane.type === 'terminal' ? (
@@ -2742,9 +2976,14 @@ function AppShell(): JSX.Element {
                               onMaximize={() => {
                                 dispatch({ type: 'UNDOCK_SESSION', id: pane.id })
                                 dispatch({ type: 'SET_ACTIVE_SESSION', id: pane.id })
+                                dispatch({ type: 'SET_VIEW_MODE', viewMode: 'full' })
                               }}
                               onDock={() => dispatch({ type: 'DOCK_SESSION', id: pane.id })}
                               onClose={() => removePane(pane.id)}
+                              onRename={(newName) => renameTerminalSession(pane.id, newName)}
+                              onSendMessage={(targetId, msg) =>
+                                sendCrossTerminalMessage(pane.id, targetId, msg)
+                              }
                               onAccountChange={(newAccountId, newProviderId, newEnv) => {
                                 setPanes((prev) =>
                                   prev.map((p) =>
@@ -2818,6 +3057,7 @@ function AppShell(): JSX.Element {
                               onMaximize={() => {
                                 dispatch({ type: 'UNDOCK_SESSION', id: pane.id })
                                 dispatch({ type: 'SET_ACTIVE_SESSION', id: pane.id })
+                                dispatch({ type: 'SET_VIEW_MODE', viewMode: 'full' })
                               }}
                               onDock={() => dispatch({ type: 'DOCK_SESSION', id: pane.id })}
                               onClose={() => removePane(pane.id)}
@@ -2834,17 +3074,21 @@ function AppShell(): JSX.Element {
                 </Responsive>
               </div>
             </div>
-          )}
 
           {state.mode === 'agent' && (
             <AgentDashboard
-              onOpenAccount={(acc) => addWebChat(acc.url, acc.name, acc.partition)}
-              onNewBrowser={() =>
+              onOpenAccount={(acc) => {
+                addWebChat(acc.url, acc.name, acc.partition)
+                dispatch({ type: 'SET_MODE', mode: 'code' })
+              }}
+              onNewBrowser={() => {
                 addWebChat('https://search.brave.com', 'Browser', 'persist:research')
-              }
-              onLaunchCLI={(command, name, folder) =>
+                dispatch({ type: 'SET_MODE', mode: 'code' })
+              }}
+              onLaunchCLI={(command, name, folder) => {
                 addTerminal(folder, name, command, `${command}-cli`)
-              }
+                dispatch({ type: 'SET_MODE', mode: 'code' })
+              }}
             />
           )}
 
@@ -2862,7 +3106,12 @@ function AppShell(): JSX.Element {
           )}
           {state.mode === 'api' && (
             <Suspense fallback={<div className="studio-loading">Opening API Studio…</div>}>
-              <ApiWorkspace />
+              <ApiWorkspace
+                onRunInTerminal={(cmd) => {
+                  addTerminal('~', 'cURL Runner', cmd)
+                  dispatch({ type: 'SET_MODE', mode: 'code' })
+                }}
+              />
             </Suspense>
           )}
         </div>
@@ -2881,9 +3130,10 @@ function AppShell(): JSX.Element {
         onToggleFocus={() => {
           if (state.viewMode === 'full') {
             dispatch({ type: 'SET_VIEW_MODE', viewMode: 'grid' })
-            dispatch({ type: 'SET_ACTIVE_SESSION', id: null })
           } else if (panes.length > 0) {
-            dispatch({ type: 'SET_ACTIVE_SESSION', id: state.activeSessionId || panes[0].id })
+            const targetId = state.activeSessionId || panes[0].id
+            dispatch({ type: 'SET_ACTIVE_SESSION', id: targetId })
+            dispatch({ type: 'SET_VIEW_MODE', viewMode: 'full' })
           }
         }}
       />

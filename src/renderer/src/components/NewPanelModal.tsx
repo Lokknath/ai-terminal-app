@@ -382,18 +382,85 @@ export default function NewPanelModal({
                     style={{
                       padding: '8px',
                       borderRadius: '8px',
-                      backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                      backgroundColor: 'rgba(229, 192, 123, 0.1)',
                       display: 'flex'
                     }}
                   >
-                    <FolderOpen size={16} color="#ffc107" />
+                    <FolderOpen size={16} color="#e5c07b" />
                   </div>
                   <div>
                     <div style={{ fontSize: '13px', fontWeight: 600, color: '#fff' }}>
-                      Choose Project Folder...
+                      Open Folder in Shell...
                     </div>
                     <div style={{ fontSize: '12px', color: '#888', marginTop: '2px' }}>
-                      Open shell in any repo or local directory
+                      Clean terminal shell in custom folder
+                    </div>
+                  </div>
+                </button>
+
+                {/* Launch Agent in Folder */}
+                <button
+                  onClick={() => {
+                    const firstAgent = state.aiAccounts[0]
+                    if (firstAgent) {
+                      const cmd = getProviderCliCommand(firstAgent.providerId)
+                      onOpenFolderPicker(
+                        `Select Working Directory for ${firstAgent.name} (${cmd})`,
+                        (folder) =>
+                          onNewTerminal(
+                            folder,
+                            `${firstAgent.name} (${cmd})`,
+                            cmd,
+                            firstAgent.providerId,
+                            firstAgent.id,
+                            getAccountEnv(firstAgent)
+                          )
+                      )
+                    } else {
+                      onOpenFolderPicker('Select Directory for Terminal', (folder) =>
+                        onNewTerminal(folder)
+                      )
+                    }
+                    onClose()
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    padding: '10px 14px',
+                    backgroundColor: 'rgba(117, 157, 255, 0.06)',
+                    border: '1px solid rgba(117, 157, 255, 0.25)',
+                    borderRadius: '10px',
+                    color: '#8baeff',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    transition: 'all 0.15s'
+                  }}
+                  onMouseOver={(e) => {
+                    e.currentTarget.style.backgroundColor = 'rgba(117, 157, 255, 0.15)'
+                    e.currentTarget.style.borderColor = '#8baeff'
+                  }}
+                  onMouseOut={(e) => {
+                    e.currentTarget.style.backgroundColor = 'rgba(117, 157, 255, 0.06)'
+                    e.currentTarget.style.borderColor = 'rgba(117, 157, 255, 0.25)'
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: '8px',
+                      borderRadius: '8px',
+                      backgroundColor: 'rgba(117, 157, 255, 0.15)',
+                      display: 'flex'
+                    }}
+                  >
+                    <Sparkles size={16} color="#8baeff" />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: '#fff' }}>
+                      Launch Agent in Folder...
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#a3afbd', marginTop: '2px' }}>
+                      Run AI coding agent with isolated profile in project folder
                     </div>
                   </div>
                 </button>
@@ -531,44 +598,90 @@ export default function NewPanelModal({
 
                       <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
                         {cmd && (
-                          <button
-                            onClick={() => {
-                              onNewTerminal(
-                                '~',
-                                `${account.name} (${cmd})`,
-                                cmd,
-                                account.providerId,
-                                account.id,
-                                accountEnv
-                              )
-                              onClose()
-                            }}
-                            title={`Launch ${cmd} agent with ${account.name} profile`}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              padding: '5px 9px',
-                              backgroundColor: 'rgba(117, 157, 255, 0.12)',
-                              border: '1px solid rgba(117, 157, 255, 0.35)',
-                              borderRadius: '6px',
-                              color: '#8baeff',
-                              fontSize: '12px',
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                              transition: 'all 0.12s'
-                            }}
-                            onMouseOver={(e) => {
-                              e.currentTarget.style.backgroundColor = 'rgba(117, 157, 255, 0.22)'
-                              e.currentTarget.style.borderColor = '#8baeff'
-                            }}
-                            onMouseOut={(e) => {
-                              e.currentTarget.style.backgroundColor = 'rgba(117, 157, 255, 0.12)'
-                              e.currentTarget.style.borderColor = 'rgba(117, 157, 255, 0.35)'
-                            }}
-                          >
-                            <Sparkles size={11} /> {cmd} ▶
-                          </button>
+                          <>
+                            <button
+                              onClick={() => {
+                                onNewTerminal(
+                                  '~',
+                                  `${account.name} (${cmd})`,
+                                  cmd,
+                                  account.providerId,
+                                  account.id,
+                                  accountEnv
+                                )
+                                onClose()
+                              }}
+                              title={`Launch ${cmd} agent in home directory with ${account.name} profile`}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                padding: '5px 9px',
+                                backgroundColor: 'rgba(117, 157, 255, 0.12)',
+                                border: '1px solid rgba(117, 157, 255, 0.35)',
+                                borderRadius: '6px',
+                                color: '#8baeff',
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                transition: 'all 0.12s'
+                              }}
+                              onMouseOver={(e) => {
+                                e.currentTarget.style.backgroundColor = 'rgba(117, 157, 255, 0.22)'
+                                e.currentTarget.style.borderColor = '#8baeff'
+                              }}
+                              onMouseOut={(e) => {
+                                e.currentTarget.style.backgroundColor = 'rgba(117, 157, 255, 0.12)'
+                                e.currentTarget.style.borderColor = 'rgba(117, 157, 255, 0.35)'
+                              }}
+                            >
+                              <Sparkles size={11} /> {cmd} ▶
+                            </button>
+
+                            <button
+                              onClick={() => {
+                                onOpenFolderPicker(
+                                  `Select Working Directory for ${account.name} (${cmd})`,
+                                  (folder) => {
+                                    onNewTerminal(
+                                      folder,
+                                      `${account.name} (${cmd})`,
+                                      cmd,
+                                      account.providerId,
+                                      account.id,
+                                      accountEnv
+                                    )
+                                  }
+                                )
+                                onClose()
+                              }}
+                              title={`Launch ${cmd} agent in a specific workspace folder with ${account.name} profile`}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                padding: '5px 8px',
+                                backgroundColor: 'rgba(229, 192, 123, 0.12)',
+                                border: '1px solid rgba(229, 192, 123, 0.35)',
+                                borderRadius: '6px',
+                                color: '#e5c07b',
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                transition: 'all 0.12s'
+                              }}
+                              onMouseOver={(e) => {
+                                e.currentTarget.style.backgroundColor = 'rgba(229, 192, 123, 0.22)'
+                                e.currentTarget.style.borderColor = '#e5c07b'
+                              }}
+                              onMouseOut={(e) => {
+                                e.currentTarget.style.backgroundColor = 'rgba(229, 192, 123, 0.12)'
+                                e.currentTarget.style.borderColor = 'rgba(229, 192, 123, 0.35)'
+                              }}
+                            >
+                              <FolderOpen size={11} /> In Folder
+                            </button>
+                          </>
                         )}
 
                         <button
@@ -608,6 +721,50 @@ export default function NewPanelModal({
                           }}
                         >
                           <Terminal size={11} /> Shell
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            onOpenFolderPicker(
+                              `Select Working Directory for ${account.name} Shell`,
+                              (folder) => {
+                                onNewTerminal(
+                                  folder,
+                                  `${account.name} (Shell)`,
+                                  undefined,
+                                  account.providerId,
+                                  account.id,
+                                  accountEnv
+                                )
+                              }
+                            )
+                            onClose()
+                          }}
+                          title={`Open shell in custom workspace folder with ${account.name} profile`}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            padding: '5px 8px',
+                            backgroundColor: 'rgba(76, 175, 80, 0.08)',
+                            border: '1px solid rgba(76, 175, 80, 0.25)',
+                            borderRadius: '6px',
+                            color: '#81c784',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            transition: 'all 0.12s'
+                          }}
+                          onMouseOver={(e) => {
+                            e.currentTarget.style.backgroundColor = 'rgba(76, 175, 80, 0.18)'
+                            e.currentTarget.style.borderColor = '#81c784'
+                          }}
+                          onMouseOut={(e) => {
+                            e.currentTarget.style.backgroundColor = 'rgba(76, 175, 80, 0.08)'
+                            e.currentTarget.style.borderColor = 'rgba(76, 175, 80, 0.25)'
+                          }}
+                        >
+                          <FolderOpen size={11} /> In Folder
                         </button>
                       </div>
                     </div>

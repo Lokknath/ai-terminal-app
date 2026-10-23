@@ -8,6 +8,7 @@ import {
   clipboard,
   nativeTheme,
   powerSaveBlocker,
+  powerMonitor,
   Notification
 } from 'electron'
 import { join } from 'path'
@@ -19,7 +20,7 @@ import { initAgentRegistry } from './agent-registry'
 import { initAccountManager } from './account-manager'
 import { initFileManager } from './file-manager'
 import { initApiClient } from './api-client'
-import { startOAuthServer } from './oauth-server'
+import { startOAuthServer, stopOAuthServer } from './oauth-server'
 import { initDevToolsManager } from './dev-tools-manager'
 
 // Prevent silent crashes on unhandled errors
@@ -30,15 +31,45 @@ process.on('unhandledRejection', (reason) => {
   console.error('[Main Process Unhandled Rejection]', reason)
 })
 
+let powerBlockerId: number | null = null
+export function updatePowerSaveBlocker(enable: boolean): boolean {
+  try {
+    if (enable) {
+      if (powerBlockerId === null || !powerSaveBlocker.isStarted(powerBlockerId)) {
+        powerBlockerId = powerSaveBlocker.start('prevent-display-sleep')
+      }
+      return true
+    } else {
+      if (powerBlockerId !== null && powerSaveBlocker.isStarted(powerBlockerId)) {
+        powerSaveBlocker.stop(powerBlockerId)
+        powerBlockerId = null
+      }
+      return false
+    }
+  } catch {
+    return false
+  }
+}
+
 let hasCleanedUp = false
 export function handleEmergencyTeardown(source: string): void {
   if (hasCleanedUp) return
   hasCleanedUp = true
   console.log(`[Lifecycle] Emergency teardown initiated by ${source}`)
   try {
+    updatePowerSaveBlocker(false)
+  } catch {
+    // ignore
+  }
+  try {
     emergencyCleanupSync()
   } catch (err) {
     console.error('[Lifecycle] emergencyCleanupSync failed:', err)
+  }
+  try {
+    stopOAuthServer()
+  } catch (err) {
+    console.error('[Lifecycle] stopOAuthServer failed:', err)
   }
   removeSingletonLocksSync()
 }
@@ -399,12 +430,27 @@ function createWindow(): BrowserWindow {
     void cleanupAllPty()
   })
 
-  // WebContents Crash & Reload Protection
+  // WebContents Crash & Reload Protection with infinite-loop prevention
+  const crashTimestamps: number[] = []
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     console.error(`[Renderer Process Gone] Reason: ${details.reason}, Code: ${details.exitCode}`)
+    const now = Date.now()
+    crashTimestamps.push(now)
+    // Keep timestamps from the last 30 seconds
+    const recentCrashes = crashTimestamps.filter((t) => now - t < 30_000)
+
+    if (recentCrashes.length > 3) {
+      console.error(
+        '[Renderer Process Gone] Exceeded maximum reload attempts (3 crashes within 30s). Halting reload loop.'
+      )
+      return
+    }
+
     if (details.reason !== 'clean-exit' && !mainWindow.isDestroyed()) {
       console.log('[Renderer Process Gone] Reloading page...')
-      mainWindow.reload()
+      setTimeout(() => {
+        if (!mainWindow.isDestroyed()) mainWindow.reload()
+      }, 500)
     }
   })
 
@@ -554,34 +600,83 @@ app.whenReady().then(() => {
     typeof url === 'string' ? openSafeExternal(url) : false
   )
 
-  // Clipboard IPC handlers for seamless token paste
+  // Clipboard IPC handlers for seamless token and image paste
   ipcMain.handle('read-clipboard-text', () => {
-    return clipboard.readText()
+    try {
+      const text = clipboard.readText()
+      return typeof text === 'string' ? text : ''
+    } catch {
+      return ''
+    }
   })
   ipcMain.handle('write-clipboard-text', (_e, text: string) => {
     if (typeof text === 'string') {
-      clipboard.writeText(text)
+      try {
+        clipboard.writeText(text)
+      } catch {
+        // ignore
+      }
     }
     return true
   })
-
-  // Power save blocker for background agent execution / sleep prevention
-  let powerBlockerId: number | null = null
-
-  function updatePowerSaveBlocker(enable: boolean): boolean {
-    if (enable) {
-      if (powerBlockerId === null || !powerSaveBlocker.isStarted(powerBlockerId)) {
-        powerBlockerId = powerSaveBlocker.start('prevent-app-suspension')
+  ipcMain.handle('read-clipboard-image', async () => {
+    try {
+      const raw = clipboard as any
+      // 1. Try legacy/standard Electron synchronous readImage
+      if (typeof raw.readImage === 'function') {
+        const img = raw.readImage()
+        if (img && !img.isEmpty()) {
+          const imageDir = join(app.getPath('temp'), 'nexus-clipboard-images')
+          fs.mkdirSync(imageDir, { recursive: true })
+          const filePath = join(imageDir, `clipboard_${Date.now()}.png`)
+          fs.writeFileSync(filePath, img.toPNG())
+          return filePath
+        }
       }
-      return true
-    } else {
-      if (powerBlockerId !== null && powerSaveBlocker.isStarted(powerBlockerId)) {
-        powerSaveBlocker.stop(powerBlockerId)
-        powerBlockerId = null
+      // 2. Try async W3C ClipboardItem read API
+      if (typeof clipboard.read === 'function') {
+        const items = await clipboard.read()
+        for (const item of items) {
+          const imageType = item.types.find((t) => t.startsWith('image/'))
+          if (imageType) {
+            const blob: any = await item.getType(imageType)
+            if (blob && typeof blob.arrayBuffer === 'function') {
+              const arrayBuffer = await blob.arrayBuffer()
+              const buffer = Buffer.from(arrayBuffer)
+              if (buffer.length > 0) {
+                const imageDir = join(app.getPath('temp'), 'nexus-clipboard-images')
+                fs.mkdirSync(imageDir, { recursive: true })
+                const filePath = join(imageDir, `clipboard_${Date.now()}.png`)
+                fs.writeFileSync(filePath, buffer)
+                return filePath
+              }
+            }
+          }
+        }
       }
-      return false
+      return null
+    } catch (err) {
+      console.error('[Clipboard] Failed to read clipboard image:', err)
+      return null
     }
-  }
+  })
+  ipcMain.handle('save-clipboard-image-buffer', (_e, buffer: Uint8Array) => {
+    try {
+      if (buffer && buffer.length > 0) {
+        const imageDir = join(app.getPath('temp'), 'nexus-clipboard-images')
+        fs.mkdirSync(imageDir, { recursive: true })
+        const filePath = join(imageDir, `pasted_${Date.now()}.png`)
+        fs.writeFileSync(filePath, Buffer.from(buffer))
+        return filePath
+      }
+      return null
+    } catch (err) {
+      console.error('[Clipboard] Failed to save image buffer:', err)
+      return null
+    }
+  })
+
+  // Power save blocker IPC bindings
 
   ipcMain.handle('set-keep-awake', (_e, enable: boolean) => {
     return updatePowerSaveBlocker(Boolean(enable))
@@ -590,6 +685,23 @@ app.whenReady().then(() => {
   ipcMain.handle('get-keep-awake-status', () => {
     return powerBlockerId !== null && powerSaveBlocker.isStarted(powerBlockerId)
   })
+
+  // System suspend/resume events — notify renderer to reconnect terminals on wake
+  const notifyResume = (): void => {
+    if (mainWindowRef && !mainWindowRef.isDestroyed()) {
+      mainWindowRef.webContents.send('system-resume')
+    }
+  }
+  const notifySuspend = (): void => {
+    if (mainWindowRef && !mainWindowRef.isDestroyed()) {
+      mainWindowRef.webContents.send('system-suspend')
+    }
+  }
+  powerMonitor.on('resume', notifyResume)
+  powerMonitor.on('unlock-screen', notifyResume)
+  powerMonitor.on('suspend', notifySuspend)
+  powerMonitor.on('lock-screen', notifySuspend)
+
 
   // Native desktop notifications for blocked / completed agents
   ipcMain.handle(
@@ -679,10 +791,16 @@ app.on('before-quit', (event) => {
     new Promise<void>((resolve) => setTimeout(resolve, 450))
   ]).finally(() => {
     clearTimeout(fallback)
+    try {
+      stopOAuthServer()
+    } catch {
+      // ignore
+    }
     removeSingletonLocksSync()
     app.exit(0)
   })
 })
 
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and require them here.
+app.on('will-quit', () => {
+  handleEmergencyTeardown('app.will-quit')
+})

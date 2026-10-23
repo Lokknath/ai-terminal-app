@@ -141,10 +141,13 @@ const api = {
   ): Promise<HandoffResult> =>
     ipcRenderer.invoke('generate-handoff-state', cwd, accountName, taskSummary),
 
-  // ─── Clipboard Utilities (Token Paste) ────────
+  // ─── Clipboard Utilities (Token & Image Paste) ────────
   readClipboardText: (): Promise<string> => ipcRenderer.invoke('read-clipboard-text'),
   writeClipboardText: (text: string): Promise<boolean> =>
     ipcRenderer.invoke('write-clipboard-text', text),
+  readClipboardImage: (): Promise<string | null> => ipcRenderer.invoke('read-clipboard-image'),
+  saveClipboardImageBuffer: (buffer: Uint8Array): Promise<string | null> =>
+    ipcRenderer.invoke('save-clipboard-image-buffer', buffer),
   sendApiRequest: (input: ApiRequestInput): Promise<ApiResponseOutput> =>
     ipcRenderer.invoke('api-send-request', input),
   cancelApiRequest: (id: string): void => ipcRenderer.send('api-cancel-request', id),
@@ -186,7 +189,20 @@ const api = {
   // ─── App Lifecycle ────────────────────────────
   relaunchApp: (): Promise<void> => ipcRenderer.invoke('app-restart'),
   quitApp: (): Promise<void> => ipcRenderer.invoke('app-graceful-quit'),
-  forceQuitApp: (): Promise<void> => ipcRenderer.invoke('app-force-quit')
+  forceQuitApp: (): Promise<void> => ipcRenderer.invoke('app-force-quit'),
+
+  // ─── System Power Events (sleep / wake) ───────
+  onSystemResume: (cb: () => void): (() => void) => {
+    const listener = (): void => cb()
+    ipcRenderer.on('system-resume', listener)
+    return () => ipcRenderer.removeListener('system-resume', listener)
+  },
+  onSystemSuspend: (cb: () => void): (() => void) => {
+    const listener = (): void => cb()
+    ipcRenderer.on('system-suspend', listener)
+    return () => ipcRenderer.removeListener('system-suspend', listener)
+  }
+
 }
 
 if (process.contextIsolated) {

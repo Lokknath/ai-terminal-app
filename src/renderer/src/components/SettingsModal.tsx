@@ -19,6 +19,7 @@ import {
   EyeOff
 } from 'lucide-react'
 import { AIAccount, DetectedCLI, CLIAccountAuth, getProviderCliLoginCommand } from '../types'
+import { SubscriptionBadge } from './SubscriptionBadge'
 
 interface SettingsModalProps {
   onOpenAccountLogin?: (account: AIAccount) => void
@@ -59,6 +60,7 @@ export default function SettingsModal({
   const [newName, setNewName] = useState('')
   const [newUrl, setNewUrl] = useState('https://claude.ai')
   const [newCliConfigDir, setNewCliConfigDir] = useState('')
+  const [newGoogleEmail, setNewGoogleEmail] = useState('')
   const [newEnvVars, setNewEnvVars] = useState<{ key: string; value: string; masked: boolean }[]>(
     []
   )
@@ -68,6 +70,7 @@ export default function SettingsModal({
   const [editName, setEditName] = useState('')
   const [editUrl, setEditUrl] = useState('')
   const [editCliConfigDir, setEditCliConfigDir] = useState('')
+  const [editGoogleEmail, setEditGoogleEmail] = useState('')
   const [editEnvVars, setEditEnvVars] = useState<{ key: string; value: string; masked: boolean }[]>(
     []
   )
@@ -201,6 +204,7 @@ export default function SettingsModal({
       url: url.toString(),
       partition: `persist:account-${slug}-${Date.now()}`,
       cliConfigDir: newCliConfigDir.trim() || computeDefaultConfigDir(newProvider, newName),
+      googleEmail: newGoogleEmail.trim() || undefined,
       envVars: Object.keys(envVars).length > 0 ? envVars : undefined,
       createdAt: Date.now()
     }
@@ -210,6 +214,7 @@ export default function SettingsModal({
       setShowAddForm(false)
       setNewName('')
       setNewCliConfigDir('')
+      setNewGoogleEmail('')
       setNewEnvVars([])
       await loadData()
       setFeedback({ message: `${name} was added.`, error: false })
@@ -247,6 +252,7 @@ export default function SettingsModal({
       name: editName.trim() || acc.name,
       url: url.toString(),
       cliConfigDir: editCliConfigDir.trim() || acc.cliConfigDir,
+      googleEmail: editGoogleEmail.trim() || undefined,
       envVars: Object.keys(envVars).length > 0 ? envVars : undefined
     }
     setBusyAccountId(acc.id)
@@ -256,6 +262,7 @@ export default function SettingsModal({
       setEditName('')
       setEditUrl('')
       setEditCliConfigDir('')
+      setEditGoogleEmail('')
       setEditEnvVars([])
       await loadData()
       setFeedback({ message: `${updated.name} was updated.`, error: false })
@@ -732,6 +739,22 @@ export default function SettingsModal({
                     </span>
                   </div>
 
+                  {newProvider === 'gemini' && (
+                    <div>
+                      <label className="settings-field-label">Account Google Email (Optional)</label>
+                      <input
+                        type="email"
+                        value={newGoogleEmail}
+                        onChange={(e) => setNewGoogleEmail(e.target.value)}
+                        placeholder="e.g. user@gmail.com"
+                        className="settings-text-input"
+                      />
+                      <span className="settings-field-help">
+                        Used by Antigravity CLI (agy) and Google Cloud SDK to isolate this Gemini profile.
+                      </span>
+                    </div>
+                  )}
+
                   {/* Custom Environment Variables & Secrets */}
                   <div
                     style={{
@@ -992,6 +1015,9 @@ export default function SettingsModal({
                               <span style={{ color: '#fff', fontSize: '14px', fontWeight: 600 }}>
                                 {acc.name}
                               </span>
+                              <SubscriptionBadge
+                                type={status?.cliAuth?.subscriptionType || acc.usage?.tier}
+                              />
                               <span
                                 style={{
                                   fontSize: '11px',
@@ -1100,12 +1126,14 @@ export default function SettingsModal({
                             onClick={() => {
                               if (isEditing) {
                                 setEditingAccountId(null)
+                                setEditGoogleEmail('')
                                 setEditEnvVars([])
                               } else {
                                 setEditingAccountId(acc.id)
                                 setEditName(acc.name)
                                 setEditUrl(acc.url)
                                 setEditCliConfigDir(acc.cliConfigDir || '')
+                                setEditGoogleEmail(acc.googleEmail || '')
                                 setEditEnvVars(
                                   Object.entries(acc.envVars || {}).map(([key, value]) => ({
                                     key,
@@ -1294,7 +1322,13 @@ export default function SettingsModal({
                                         acc.providerId
                                       )
                                       if (res.success) {
-                                        await refreshStatuses(accounts)
+                                        const updatedAccounts = await window.api.getAIAccounts()
+                                        setAccounts(updatedAccounts)
+                                        dispatch({
+                                          type: 'SET_AI_ACCOUNTS',
+                                          accounts: updatedAccounts
+                                        })
+                                        await refreshStatuses(updatedAccounts)
                                       }
                                     }}
                                     style={{
@@ -1554,6 +1588,20 @@ export default function SettingsModal({
                               onChange={(e) => setEditUrl(e.target.value)}
                               className="settings-text-input"
                             />
+                          </div>
+
+                          <div>
+                            <label className="settings-field-label">Account Email / Google SSO Email</label>
+                            <input
+                              type="email"
+                              value={editGoogleEmail}
+                              onChange={(e) => setEditGoogleEmail(e.target.value)}
+                              placeholder="e.g. user@gmail.com"
+                              className="settings-text-input"
+                            />
+                            <span className="settings-field-help">
+                              Used by Antigravity CLI (agy) and Google Cloud SDK to isolate this Gemini profile.
+                            </span>
                           </div>
 
                           {/* Custom Environment Variables & Secrets for Edit */}

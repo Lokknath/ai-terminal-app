@@ -19,6 +19,7 @@ nsis:
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
+electronDist: node_modules/electron/dist
 mac:
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:

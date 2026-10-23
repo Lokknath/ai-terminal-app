@@ -26,21 +26,16 @@
 }
 
 .app-header {
-  grid-template-columns: minmax(160px, 1fr) auto minmax(210px, 1fr) !important;
-  gap: 12px !important;
+  gap: 8px !important;
 }
 .header-modes {
   gap: 2px;
   max-width: min(100%, 750px);
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.header-modes::-webkit-scrollbar {
-  display: none;
 }
 .mode-button {
-  min-height: 38px;
-  padding-inline: 13px;
+  min-height: 28px;
+  height: 28px;
+  padding: 0 10px;
 }
 .mode-button svg {
   flex: none;
@@ -854,24 +849,23 @@
   .header-ist-clock {
     display: none;
   }
-  .app-header {
-    grid-template-columns: minmax(140px, 1fr) auto minmax(160px, 1fr) !important;
-  }
-  .mode-button {
-    padding-inline: 10px;
-  }
+
 }
 @media (max-width: 1100px) {
-  .app-header {
-    display: flex !important;
-    overflow-x: auto;
+  .brand-ist {
+    display: none;
   }
-  .header-brand {
-    flex: none;
+  .search-text {
+    display: none;
   }
-  .header-modes {
-    flex: none;
+  .header-search-trigger {
+    max-width: 44px;
+    padding: 4px 6px;
   }
+  .header-search-trigger .search-kbd {
+    display: none;
+  }
+}
   .header-actions {
     flex: none;
     margin-left: auto;
