@@ -18,12 +18,14 @@ import {
   PanelLeft,
   PanelsTopLeft,
   Plus,
+  RotateCcw,
   Rows3,
   Search,
   Settings,
   Send,
   Sparkles,
   TerminalSquare,
+  Timer,
   WandSparkles,
   type LucideIcon
 } from 'lucide-react'
@@ -116,6 +118,25 @@ const layouts: { type: LayoutPresetType; label: string; detail: string; icon: Lu
   }
 ]
 
+const STOPWATCH_STORAGE_KEY = 'nexus_stopwatch_state'
+
+interface StopwatchStorageData {
+  running: boolean
+  accumulatedMs: number
+  startTime: number | null
+}
+
+function formatStopwatch(totalSeconds: number): string {
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+  }
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+}
+
 export default function HeaderBar({
   visiblePaneCount,
   onApplyLayout,
@@ -132,10 +153,116 @@ export default function HeaderBar({
   const [layoutOpen, setLayoutOpen] = useState(false)
   const [newMenuOpen, setNewMenuOpen] = useState(false)
   const [clock, setClock] = useState(0)
+  const [stopwatchRunning, setStopwatchRunning] = useState(false)
+  const [stopwatchElapsedSec, setStopwatchElapsedSec] = useState(0)
+  const stopwatchRef = useRef<StopwatchStorageData>({
+    running: false,
+    accumulatedMs: 0,
+    startTime: null
+  })
   const menuRef = useRef<HTMLDivElement>(null)
   const layoutButtonRef = useRef<HTMLButtonElement>(null)
   const newMenuRef = useRef<HTMLDivElement>(null)
   const newButtonRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    let saved: StopwatchStorageData | null = null
+    try {
+      const raw = localStorage.getItem(STOPWATCH_STORAGE_KEY)
+      if (raw) saved = JSON.parse(raw)
+    } catch {
+      // ignore
+    }
+
+    if (saved && typeof saved.accumulatedMs === 'number') {
+      stopwatchRef.current = saved
+      if (saved.running && saved.startTime) {
+        const currentElapsed = saved.accumulatedMs + (Date.now() - saved.startTime)
+        setStopwatchElapsedSec(Math.floor(currentElapsed / 1000))
+        setStopwatchRunning(true)
+      } else {
+        setStopwatchElapsedSec(Math.floor(saved.accumulatedMs / 1000))
+        setStopwatchRunning(false)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!stopwatchRunning) return
+
+    const tick = (): void => {
+      const current = stopwatchRef.current
+      if (!current.running || !current.startTime) return
+      const totalMs = current.accumulatedMs + (Date.now() - current.startTime)
+      setStopwatchElapsedSec(Math.floor(totalMs / 1000))
+    }
+
+    tick()
+    const interval = setInterval(tick, 250)
+    return () => clearInterval(interval)
+  }, [stopwatchRunning])
+
+  const handleStopwatchToggle = (): void => {
+    const now = Date.now()
+    const current = stopwatchRef.current
+
+    if (current.running) {
+      const newAccum = current.accumulatedMs + (current.startTime ? now - current.startTime : 0)
+      const nextState: StopwatchStorageData = {
+        running: false,
+        accumulatedMs: newAccum,
+        startTime: null
+      }
+      stopwatchRef.current = nextState
+      setStopwatchRunning(false)
+      setStopwatchElapsedSec(Math.floor(newAccum / 1000))
+      try {
+        localStorage.setItem(STOPWATCH_STORAGE_KEY, JSON.stringify(nextState))
+      } catch {
+        // ignore
+      }
+    } else {
+      const nextState: StopwatchStorageData = {
+        running: true,
+        accumulatedMs: current.accumulatedMs,
+        startTime: now
+      }
+      stopwatchRef.current = nextState
+      setStopwatchRunning(true)
+      try {
+        localStorage.setItem(STOPWATCH_STORAGE_KEY, JSON.stringify(nextState))
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  const handleStopwatchReset = (): void => {
+    const nextState: StopwatchStorageData = {
+      running: false,
+      accumulatedMs: 0,
+      startTime: null
+    }
+    stopwatchRef.current = nextState
+    setStopwatchRunning(false)
+    setStopwatchElapsedSec(0)
+    try {
+      localStorage.setItem(STOPWATCH_STORAGE_KEY, JSON.stringify(nextState))
+    } catch {
+      // ignore
+    }
+  }
+
+  const stopwatchTooltip = useMemo(() => {
+    const formatted = formatStopwatch(stopwatchElapsedSec)
+    if (stopwatchRunning) {
+      return `Stopwatch: ${formatted} (Running — Click to pause, right-click to reset)`
+    }
+    if (stopwatchElapsedSec > 0) {
+      return `Stopwatch: ${formatted} (Paused — Click to resume, right-click to reset)`
+    }
+    return 'Developer Stopwatch (Click to start)'
+  }, [stopwatchRunning, stopwatchElapsedSec])
 
   useEffect(() => {
     const initial = setTimeout(() => setClock(Date.now()), 0)
@@ -264,29 +391,71 @@ export default function HeaderBar({
         </div>
         <div className="brand-name">
           <strong>Nexus</strong>
-          <span
-            className="brand-ist"
-            title={
-              clock
+          <div className="brand-meta-row">
+            <span
+              className="brand-ist"
+              title={
+                clock
+                  ? new Intl.DateTimeFormat('en-IN', {
+                      timeZone: 'Asia/Kolkata',
+                      dateStyle: 'full',
+                      timeStyle: 'short'
+                    }).format(clock)
+                  : 'India Standard Time'
+              }
+            >
+              <Clock3 size={10} />{' '}
+              {clock
                 ? new Intl.DateTimeFormat('en-IN', {
                     timeZone: 'Asia/Kolkata',
-                    dateStyle: 'full',
-                    timeStyle: 'short'
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    hour12: true
                   }).format(clock)
-                : 'India Standard Time'
-            }
-          >
-            <Clock3 size={10} />{' '}
-            {clock
-              ? new Intl.DateTimeFormat('en-IN', {
-                  timeZone: 'Asia/Kolkata',
-                  hour: 'numeric',
-                  minute: '2-digit',
-                  hour12: true
-                }).format(clock)
-              : '—'}{' '}
-            IST
-          </span>
+                : '—'}{' '}
+              IST
+            </span>
+            <span className="brand-divider" aria-hidden="true">•</span>
+            <div
+              className={`header-stopwatch ${stopwatchRunning ? 'is-running' : ''} ${stopwatchElapsedSec > 0 && !stopwatchRunning ? 'is-paused' : ''}`}
+              role="button"
+              tabIndex={0}
+              onClick={handleStopwatchToggle}
+              onDoubleClick={handleStopwatchReset}
+              onContextMenu={(e) => {
+                e.preventDefault()
+                handleStopwatchReset()
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  handleStopwatchToggle()
+                } else if (e.key === 'Escape' || e.key === 'Backspace') {
+                  e.preventDefault()
+                  handleStopwatchReset()
+                }
+              }}
+              title={stopwatchTooltip}
+              aria-label={stopwatchTooltip}
+            >
+              <Timer size={10} className={`stopwatch-icon ${stopwatchRunning ? 'is-pulsing' : ''}`} />
+              <span className="stopwatch-digits">{formatStopwatch(stopwatchElapsedSec)}</span>
+              {stopwatchElapsedSec > 0 && (
+                <button
+                  type="button"
+                  className="stopwatch-reset-btn"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleStopwatchReset()
+                  }}
+                  title="Reset stopwatch (00:00)"
+                  aria-label="Reset stopwatch"
+                >
+                  <RotateCcw size={9} />
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 

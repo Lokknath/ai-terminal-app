@@ -852,7 +852,8 @@
 
 }
 @media (max-width: 1100px) {
-  .brand-ist {
+  .brand-ist,
+  .brand-divider {
     display: none;
   }
   .search-text {
