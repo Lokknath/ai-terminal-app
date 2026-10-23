@@ -165,6 +165,8 @@ export default function TerminalPane({
   const stdoutBufferRef = useRef<string>('')
   const lastNotifiedStatusRef = useRef<string>('')
   const activeSessionIdRef = useRef(state.activeSessionId)
+  const viewModeRef = useRef(state.viewMode)
+  const [isScrolledUp, setIsScrolledUp] = useState(false)
   const lastReportedStatusRef = useRef<string>('idle')
   const detectionDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const manualActionTimestampRef = useRef<number>(0)
@@ -286,6 +288,52 @@ export default function TerminalPane({
   useEffect(() => {
     activeSessionIdRef.current = state.activeSessionId
   }, [state.activeSessionId])
+
+  useEffect(() => {
+    viewModeRef.current = state.viewMode
+  }, [state.viewMode])
+
+  // Keep terminal focused, fitted, and scrolled to active prompt whenever entering Focus Mode or switching tabs in Focus Mode
+  useEffect(() => {
+    if (!termInstanceRef.current || !fitAddonRef.current) return
+    const isActive = state.activeSessionId === id
+    if (!isActive) return
+
+    // Ensure DOM container itself is not scrolled
+    if (terminalRef.current) {
+      terminalRef.current.scrollTop = 0
+      terminalRef.current.scrollLeft = 0
+    }
+
+    const fitAndScroll = (): void => {
+      try {
+        if (terminalRef.current && terminalRef.current.clientWidth && terminalRef.current.clientHeight) {
+          fitAddonRef.current?.fit()
+          const term = termInstanceRef.current
+          if (term) {
+            term.scrollToBottom()
+            setIsScrolledUp(false)
+            if (terminalRef.current) {
+              terminalRef.current.scrollTop = 0
+              terminalRef.current.scrollLeft = 0
+            }
+          }
+        }
+      } catch {
+        /* ignore fit errors during rapid unmount */
+      }
+    }
+
+    fitAndScroll()
+    const t1 = setTimeout(fitAndScroll, 40)
+    const t2 = setTimeout(fitAndScroll, 120)
+    const t3 = setTimeout(fitAndScroll, 220)
+    return () => {
+      clearTimeout(t1)
+      clearTimeout(t2)
+      clearTimeout(t3)
+    }
+  }, [state.activeSessionId, state.viewMode, id])
 
   // Synchronize with external agent approvals/denials from Sidebar or Command Palette
   const termSession = useMemo(() => state.terminals.find((t) => t.id === id), [state.terminals, id])
@@ -738,11 +786,29 @@ export default function TerminalPane({
     // Click anywhere in terminal container to focus xterm
     const termContainer = terminalRef.current
     const focusTerminal = (): void => {
+      if (terminalRef.current) {
+        terminalRef.current.scrollTop = 0
+        terminalRef.current.scrollLeft = 0
+      }
       term.focus()
+      if (viewModeRef.current === 'full') {
+        term.scrollToBottom()
+        setIsScrolledUp(false)
+      }
       dispatch({ type: 'SET_ACTIVE_SESSION', id })
     }
     termContainer.addEventListener('click', focusTerminal)
     termContainer.addEventListener('mousedown', focusTerminal)
+
+    const scrollDisposable = term.onScroll(() => {
+      try {
+        const buffer = term.buffer.active
+        const isUp = buffer ? buffer.viewportY < buffer.baseY - 1 : false
+        setIsScrolledUp(isUp)
+      } catch {
+        /* ignore */
+      }
+    })
     const onPaste = async (e: ClipboardEvent): Promise<void> => {
       e.preventDefault()
       // Check for pasted image files/blobs in clipboard items
@@ -819,7 +885,13 @@ export default function TerminalPane({
     })
 
     const onDataHandler = (_: unknown, data: string): void => {
-      term.write(data)
+      const buffer = term.buffer.active
+      const wasAtBottom = buffer ? buffer.viewportY >= buffer.baseY - 2 : true
+      term.write(data, () => {
+        if (wasAtBottom && (viewModeRef.current === 'full' || activeSessionIdRef.current === id)) {
+          term.scrollToBottom()
+        }
+      })
       const cleanData = stripAnsi(data)
       const rateLimitRegex =
         /rate limit reached|hit usage limit|resets in|resets at|429 too many requests|quota exceeded|you've hit the limit|usage limit exceeded/i
@@ -959,6 +1031,18 @@ export default function TerminalPane({
             lastRows = term.rows
             window.electron.ipcRenderer.send('pty-resize', id, term.cols, term.rows)
           }
+          if (terminalRef.current) {
+            terminalRef.current.scrollTop = 0
+            terminalRef.current.scrollLeft = 0
+          }
+          // Prevent scroll from jumping to top on resize/fit:
+          // Keep prompt in view if in focus mode or near bottom
+          const buffer = term.buffer.active
+          const isAtBottom = buffer ? buffer.viewportY >= buffer.baseY - 2 : true
+          if (isAtBottom || viewModeRef.current === 'full') {
+            term.scrollToBottom()
+            setIsScrolledUp(false)
+          }
         } catch {
           /* ignore fit errors on unmounted containers */
         }
@@ -977,6 +1061,11 @@ export default function TerminalPane({
       clearTimeout(timer)
       if (detectionDebounceTimerRef.current) {
         clearTimeout(detectionDebounceTimerRef.current)
+      }
+      try {
+        scrollDisposable.dispose()
+      } catch {
+        /* ignore */
       }
       termContainer.removeEventListener('click', focusTerminal)
       termContainer.removeEventListener('mousedown', focusTerminal)
@@ -1108,8 +1197,12 @@ export default function TerminalPane({
     <div
       onMouseDown={() => {
         dispatch({ type: 'SET_ACTIVE_SESSION', id })
+        if (state.viewMode === 'full') {
+          termInstanceRef.current?.scrollToBottom()
+        }
       }}
       style={{
+        position: 'relative',
         height: '100%',
         width: '100%',
         display: 'flex',
@@ -3411,6 +3504,22 @@ export default function TerminalPane({
         }}
         style={{ flexGrow: 1, overflow: 'hidden', padding: '6px', cursor: 'text' }}
       />
+      {isScrolledUp && (
+        <button
+          type="button"
+          className="terminal-jump-prompt-btn"
+          onClick={(e) => {
+            e.stopPropagation()
+            termInstanceRef.current?.scrollToBottom()
+            termInstanceRef.current?.focus()
+            setIsScrolledUp(false)
+          }}
+          title="Jump to active prompt (Bottom)"
+        >
+          <CornerDownLeft size={12} />
+          <span>Jump to Prompt</span>
+        </button>
+      )}
 
       {/* Terminal Right-Click Context Menu */}
       {contextMenu && (

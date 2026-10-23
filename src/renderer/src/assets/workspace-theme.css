@@ -975,6 +975,43 @@ html.macos .app-header {
     padding: 7px !important;
   }
 }
+
+.code-workspace-full-mode .react-grid-layout,
+.code-workspace-full-mode .react-grid-item.pane-fullscreen-elevated {
+  height: 100% !important;
+  min-height: 100% !important;
+  max-height: 100% !important;
+}
+
+/* Floating Jump to Prompt button */
+.terminal-jump-prompt-btn {
+  position: absolute;
+  bottom: 16px;
+  right: 22px;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  background: rgba(16, 22, 36, 0.94);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(117, 157, 255, 0.45);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.6), 0 0 12px rgba(117, 157, 255, 0.2);
+  color: #8baeff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 150ms ease;
+  user-select: none;
+}
+.terminal-jump-prompt-btn:hover {
+  background: rgba(30, 42, 68, 0.98);
+  border-color: #8baeff;
+  color: #fff;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.7), 0 0 16px rgba(117, 157, 255, 0.35);
+}
 @media (prefers-reduced-motion: reduce) {
   .app-header *,
   .agent-sidebar * {

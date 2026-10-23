@@ -1891,7 +1891,7 @@ function AppShell(): JSX.Element {
         >
           {/* Persistent Code Workspace: Always mounted to keep background PTY listeners, agent detection, and attention alerts active */}
           <div
-            className="code-workspace"
+            className={`code-workspace ${state.viewMode === 'full' ? 'code-workspace-full-mode' : ''}`}
             ref={codeWorkspaceRef}
             style={{
               flex: 1,
@@ -1970,7 +1970,10 @@ function AppShell(): JSX.Element {
                       return (
                         <button
                           key={pane.id}
-                          onClick={() => dispatch({ type: 'SET_ACTIVE_SESSION', id: pane.id })}
+                          onClick={() => {
+                            dispatch({ type: 'SET_ACTIVE_SESSION', id: pane.id })
+                            window.dispatchEvent(new Event('resize'))
+                          }}
                           style={{
                             display: 'flex',
                             alignItems: 'center',
